@@ -19,8 +19,6 @@
 unsigned char       ct[CRYPTO_CIPHERTEXTBYTES], ss[CRYPTO_BYTES], ss1[CRYPTO_BYTES];
 unsigned char       pk[CRYPTO_PUBLICKEYBYTES], sk[CRYPTO_SECRETKEYBYTES];
 
-static void decode_pk(poly *pk, unsigned char *seed, const unsigned char *r);
-static void gen_a(poly *a, const unsigned char *seed);
 static void encode_c(unsigned char *r, const poly *b, const poly *v);
 
 /***************************** Attack related *******************************/
@@ -49,7 +47,7 @@ void sampleRandom(quadruplet_t * q, int16_t lower_bound, int16_t upper_bound);
 
 void init(oracle_bitmap_t * b);
 
-void create_attack_ct(const poly *Uhat, quadruplet_t *l, int16_t k, int16_t j);
+void create_attack_ct(const poly *Uhat, quadruplet_t *l);
 
 bool checkAtBorders(quadruplet_t * l, int quadruplet_index, int16_t target_index, const poly * Uhat,
         keyHypothesis_t * k);
@@ -62,6 +60,8 @@ bool mismatchOracle(const unsigned char * ciphertext, keyHypothesis_t * hypothes
 int16_t find_s(const int8_t * tau);
 
 void zero(poly * p);
+
+void genfakeU(poly * U, int k);
 /*****************************************************************************/
 
 
@@ -87,48 +87,32 @@ int main() {
     ///////////////////////////////////////////////
     /// DEBUG
     //////////////////////////////////////////////
-//    poly shat;
-//    poly_frombytes(&shat, sk);
-//    poly_invntt(&shat);
-//    printf("sk raw:[");
-//    for (int i = 0; i < NEWHOPE_N; ++i) {
-//        printf("%d,",((shat.coeffs[i] - NEWHOPE_Q) % NEWHOPE_Q));
-//    }
-//    printf("]\n");
-
+    poly U;
+    genfakeU(&U, 0);
+    poly_ntt(&U);
     quadruplet_t l;
-    sampleRandom(&l, -4, 3);
-    printf("l:[%d ,%d, %d, %d]\n",l.l[0], l.l[1],l.l[2],l.l[3]);
-
-    uint16_t  k = 0;
-    poly Uhat;
-    zero(&Uhat);
-    Uhat.coeffs[NEWHOPE_N - k - 1] = S/2;  // U = (s/2) x^(-k)
-    printf("U:[");
-    for (int i = 0; i < NEWHOPE_N; ++i) {
-        printf("%d,",Uhat.coeffs[i]);
+    sampleRandom(&l, -4,3);
+    for(int i = -4; i <= 3; i++){
+        l.l[0]=i;
+        create_attack_ct(&U, &l);
+        cpapke_dec(ss, attack_ct, sk);
+        printf("\nss: ");
+        printfPrams(ss, CRYPTO_BYTES);
     }
-    printf("]\n");
-    poly_ntt(&Uhat);    //directly convert into NTT domain
 
-    create_attack_ct(&Uhat, &l, 0,0);
-//    printf("ct is: ");
-//    printfPrams(attack_ct, CRYPTO_CIPHERTEXTBYTES);
-    cpapke_dec(ss, attack_ct, sk);
-    printf("\nss: ");
-    printfPrams(ss, CRYPTO_BYTES);
+
 
     ///////////////////////////////////////////////
     /// DEBUG
     //////////////////////////////////////////////
 
     // Attack starting here
-//    key_recovery(&sk_guess);
-//    printf("sk guess:[");
-//    for (int i = 0; i < NEWHOPE_N; ++i) {
-//        printf("%d,",sk_guess.coeffs[i]);
-//    }
-//    printf("]\n");
+    key_recovery(&sk_guess);
+    printf("sk guess:[");
+    for (int i = 0; i < NEWHOPE_N; ++i) {
+        printf("%d,",sk_guess.coeffs[i]);
+    }
+    printf("]\n");
 
 
 
@@ -149,7 +133,7 @@ void key_recovery(poly *sk_guess){
     for(int k = 0; k < 2; k++){
         poly Uhat;
         zero(&Uhat);
-        Uhat.coeffs[NEWHOPE_N - k - 1] = (S/2);  // U = (s/2) x^(-k)
+        genfakeU(&Uhat, k);
         //directly convert into NTT domain
         poly_ntt(&Uhat);
         //setting U moved to create_attack_ct
@@ -227,10 +211,10 @@ bool checkAtBorders(quadruplet_t * l, const int quadruplet_index, const int16_t 
 
     backup = l->l[quadruplet_index];
     l->l[quadruplet_index] = -4;
-    create_attack_ct(Uhat, l, target_index, quadruplet_index);;
+    create_attack_ct(Uhat, l);
     errorLowerBound = mismatchOracle(attack_ct, k);
     l->l[quadruplet_index] = 3;
-    create_attack_ct(Uhat, l, target_index, quadruplet_index);;
+    create_attack_ct(Uhat, l);
     errorUpperBound = mismatchOracle(attack_ct, k);
 
     //restoring the quadruplet
@@ -258,7 +242,7 @@ uint8_t testAndFindTau(int8_t * tau, quadruplet_t * l, const int quadruplet_inde
 
     for (int i = 1; i < TEST_RANGE - 1; ++i) {
         l->l[quadruplet_index] = l_test_value;
-        create_attack_ct(Uhat, l, target_index, quadruplet_index);
+        create_attack_ct(Uhat, l);
         oracle_results->b[i] = mismatchOracle(attack_ct, k);
         oracle_results->b[i] == true ? printf("+,") : printf("-,");
         queries++;
@@ -294,18 +278,22 @@ uint8_t testAndFindTau(int8_t * tau, quadruplet_t * l, const int quadruplet_inde
     return queries;
 }
 
-/*************************************************
-* Name:        gen_a
-*
-* Description: Deterministically generate public polynomial a from seed
-*
-* Arguments:   - poly *a:                   pointer to output polynomial a
-*              - const unsigned char *seed: pointer to input seed
-**************************************************/
-static void gen_a(poly *a, const unsigned char *seed)
-{
-    poly_uniform(a,seed);
+/**
+ * Gernerates the fake public key from the attacker(Bob) with
+ * U = s/2 x^(-k)
+ * @param output U
+ * @param input k
+ */
+void genfakeU(poly * U, int k){
+    zero(U);
+    if(k == 0){
+        U->coeffs[0] = S/2;
+    } else{
+
+    }
+    U->coeffs[NEWHOPE_N - k] = NEWHOPE_Q - (S/2);
 }
+
 
 /**
  * Fill the given quadruplet with random numbers in the given range
@@ -333,20 +321,13 @@ void init(oracle_bitmap_t * b){
  * Creates an ciphertext that can be used for the attack and stores it in the global attack_ct
  * @param Uhat
  * @param l
- * @param k
- * @param j
  */
-void create_attack_ct(const poly * Uhat, quadruplet_t *l, int16_t k, int16_t j) {
-    int16_t sum_quadruplet = 0;
-
-    for (int i = 0; i < QUADRUPLET_SIZE; ++i) {
-        if(i == j) continue;   //calculate the sum of l excluding the target index
-        sum_quadruplet += (l->l[i] + 4 % 8);
-    }
-
+void create_attack_ct(const poly * Uhat, quadruplet_t *l) {
     poly c;
     zero(&c);
-    c.coeffs[k + (j*SS_BITS)] = sum_quadruplet;
+    for (int i = 0; i < QUADRUPLET_SIZE; ++i) {
+        c.coeffs[i*SS_BITS] = (l->l[i] + 4 % 8);
+    }
 
     encode_c(attack_ct, Uhat, &c);
 }
@@ -429,22 +410,5 @@ static void encode_c(unsigned char *r, const poly *b, const poly *v)
 {
     poly_tobytes(r,b);
     poly_compress(r+NEWHOPE_POLYBYTES,v);
-}
-
-/*************************************************
-* Name:        decode_pk
-*
-* Description: De-serialize the public key; inverse of encode_pk
-*
-* Arguments:   poly *pk:               pointer to output public-key polynomial
-*              unsigned char *seed:    pointer to output public seed
-*              const unsigned char *r: pointer to input byte array
-**************************************************/
-static void decode_pk(poly *pk, unsigned char *seed, const unsigned char *r)
-{
-    int i;
-    poly_frombytes(pk, r);
-    for(i=0;i<NEWHOPE_SYMBYTES;i++)
-        seed[i] = r[NEWHOPE_POLYBYTES+i];
 }
 
