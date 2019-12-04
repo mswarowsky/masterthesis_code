@@ -18,8 +18,8 @@ add_subdirectory(NewHope)
 
 
 # Test programms
-add_executable(cpaTest512 cpaTest.c printParamas.h)
-target_link_libraries(cpaTest512 cpakem512)
+add_executable(cpaTest1024 cpaTest.c printParamas.h)
+target_link_libraries(cpaTest1024 cpakem1024)
 
 # Attack prgoramms
 add_executable(cpaAttack cpaAttack.c)

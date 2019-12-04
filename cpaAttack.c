@@ -87,18 +87,30 @@ int main() {
     ///////////////////////////////////////////////
     /// DEBUG
     //////////////////////////////////////////////
-    poly U;
-    genfakeU(&U, 0);
-    poly_ntt(&U);
+
+    poly Uhat;
+    genfakeU(&Uhat, 3);
+    printf("Uhat: [");
+    for (int i = 0; i < NEWHOPE_N; ++i) {
+        printf("%d,",Uhat.coeffs[i]);
+    }
+    printf("] \n");
+    poly_ntt(&Uhat);
     quadruplet_t l;
-    sampleRandom(&l, -4,3);
+//    sampleRandom(&l, -4,3);
+    l.l[0] = 0;
+    l.l[1] = -3;
+    l.l[2] = -2;
+    l.l[3] = -1;
+
     for(int i = -4; i <= 3; i++){
         l.l[0]=i;
-        create_attack_ct(&U, &l);
+        create_attack_ct(&Uhat, &l);
         cpapke_dec(ss, attack_ct, sk);
-        printf("\nss: ");
+        printf("  l:[%d, %d, %d, %d] \nss: ", l.l[0], l.l[1], l.l[2], l.l[3]);
         printfPrams(ss, CRYPTO_BYTES);
     }
+    printf("\n");
 
 
 
@@ -107,12 +119,12 @@ int main() {
     //////////////////////////////////////////////
 
     // Attack starting here
-    key_recovery(&sk_guess);
-    printf("sk guess:[");
-    for (int i = 0; i < NEWHOPE_N; ++i) {
-        printf("%d,",sk_guess.coeffs[i]);
-    }
-    printf("]\n");
+//    key_recovery(&sk_guess);
+//    printf("sk guess:[");
+//    for (int i = 0; i < NEWHOPE_N; ++i) {
+//        printf("%d,",sk_guess.coeffs[i]);
+//    }
+//    printf("]\n");
 
 
 
@@ -250,7 +262,7 @@ uint8_t testAndFindTau(int8_t * tau, quadruplet_t * l, const int quadruplet_inde
         //check and set tau_2 from false(0) -> true(1)
         if (oracle_results->b[i-1] == false && oracle_results->b[i] == true) {
             sign_changes++;         //should always be 2 here but this is taken from the magma code
-            tau[1] = l_test_value;  //using the test value as this closer to the paper instead of magma version
+            tau[1] = l_test_value - 1;  //using the test value as this closer to the paper instead of magma version
             //not fully necessary but again follow the magma code
             for (int r = i +1; r < TEST_RANGE - 1; ++r) {
                 oracle_results->b[r] = true;
@@ -279,23 +291,6 @@ uint8_t testAndFindTau(int8_t * tau, quadruplet_t * l, const int quadruplet_inde
 }
 
 /**
- * Gernerates the fake public key from the attacker(Bob) with
- * U = s/2 x^(-k)
- * @param output U
- * @param input k
- */
-void genfakeU(poly * U, int k){
-    zero(U);
-    if(k == 0){
-        U->coeffs[0] = S/2;
-    } else{
-
-    }
-    U->coeffs[NEWHOPE_N - k] = NEWHOPE_Q - (S/2);
-}
-
-
-/**
  * Fill the given quadruplet with random numbers in the given range
  * @param q
  * @param lower_bound
@@ -318,18 +313,37 @@ void init(oracle_bitmap_t * b){
 }
 
 /**
+ * Gernerates the fake public key from the attacker(Bob) with
+ * U = s/2 x^(-k)
+ * @param output U
+ * @param input k
+ */
+void genfakeU(poly * U, int k){
+    zero(U);
+    if(k == 0){
+        U->coeffs[0] = S/2;
+    } else{
+
+    }
+    U->coeffs[NEWHOPE_N - k] = NEWHOPE_Q - (S/2);
+}
+
+/**
  * Creates an ciphertext that can be used for the attack and stores it in the global attack_ct
- * @param Uhat
+ * @param Uhat in NTT domain
  * @param l
  */
-void create_attack_ct(const poly * Uhat, quadruplet_t *l) {
+void create_attack_ct(const poly * uhat, quadruplet_t *l) {
     poly c;
     zero(&c);
     for (int i = 0; i < QUADRUPLET_SIZE; ++i) {
-        c.coeffs[i*SS_BITS] = (l->l[i] + 4 % 8);
+//        c.coeffs[i*SS_BITS] = ((l->l[i] + 4 % 8 + NEWHOPE_Q )<< 8);
+        //the paer only says (l->l[i] + 4 % 8) but as this gets compressed, we need to "decompress first"
+        c.coeffs[i*SS_BITS] = ((l->l[i] + 4 % 8) * NEWHOPE_Q) / 8;
     }
+    printf(" \nc[0]: %d, c[256]: %d, c[512]: %d, c[768]: %d", c.coeffs[0], c.coeffs[256], c.coeffs[512], c.coeffs[768]);
 
-    encode_c(attack_ct, Uhat, &c);
+    encode_c(attack_ct, uhat, &c);
 }
 
 /**
