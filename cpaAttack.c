@@ -52,8 +52,9 @@ void create_attack_ct(const poly *Uhat, quadruplet_t *l);
 bool checkAtBorders(quadruplet_t * l, int quadruplet_index, int16_t target_index, const poly * Uhat,
         keyHypothesis_t * k);
 
-uint8_t testAndFindTau(int8_t * tau, quadruplet_t * l, int quadruplet_index, int16_t target_index, const poly * Uhat,
-        keyHypothesis_t * k, oracle_bitmap_t * oracle_results);
+uint8_t testAndFindTau(int8_t *tau, uint8_t *sign_changes, quadruplet_t *l, const int quadruplet_index,
+                       const int16_t target_index, const poly *Uhat, keyHypothesis_t *k,
+                       oracle_bitmap_t *oracle_results);
 
 bool mismatchOracle(const unsigned char * ciphertext, keyHypothesis_t * hypothesis);
 
@@ -88,29 +89,29 @@ int main() {
     /// DEBUG
     //////////////////////////////////////////////
 
-    poly Uhat;
-    genfakeU(&Uhat, 3);
-    printf("Uhat: [");
-    for (int i = 0; i < NEWHOPE_N; ++i) {
-        printf("%d,",Uhat.coeffs[i]);
-    }
-    printf("] \n");
-    poly_ntt(&Uhat);
-    quadruplet_t l;
-//    sampleRandom(&l, -4,3);
-    l.l[0] = 0;
-    l.l[1] = -3;
-    l.l[2] = -2;
-    l.l[3] = -1;
-
-    for(int i = -4; i <= 3; i++){
-        l.l[0]=i;
-        create_attack_ct(&Uhat, &l);
-        cpapke_dec(ss, attack_ct, sk);
-        printf("  l:[%d, %d, %d, %d] \nss: ", l.l[0], l.l[1], l.l[2], l.l[3]);
-        printfPrams(ss, CRYPTO_BYTES);
-    }
-    printf("\n");
+//    poly Uhat;
+//    genfakeU(&Uhat, 3);
+//    printf("Uhat: [");
+//    for (int i = 0; i < NEWHOPE_N; ++i) {
+//        printf("%d,",Uhat.coeffs[i]);
+//    }
+//    printf("] \n");
+//    poly_ntt(&Uhat);
+//    quadruplet_t l;
+////    sampleRandom(&l, -4,3);
+//    l.l[0] = 0;
+//    l.l[1] = -3;
+//    l.l[2] = -2;
+//    l.l[3] = -1;
+//
+//    for(int i = -4; i <= 3; i++){
+//        l.l[0]=i;
+//        create_attack_ct(&Uhat, &l);
+//        cpapke_dec(ss, attack_ct, sk);
+//        printf("  l:[%d, %d, %d, %d] \nss: ", l.l[0], l.l[1], l.l[2], l.l[3]);
+//        printfPrams(ss, CRYPTO_BYTES);
+//    }
+//    printf("\n");
 
 
 
@@ -119,12 +120,16 @@ int main() {
     //////////////////////////////////////////////
 
     // Attack starting here
-//    key_recovery(&sk_guess);
+    key_recovery(&sk_guess);
+    printf("guess: [%d, %d,...,%d,%d,...,%d,%d,...,%d,%d,...]\n", sk_guess.coeffs[0], sk_guess.coeffs[1],
+           sk_guess.coeffs[256], sk_guess.coeffs[257],
+            sk_guess.coeffs[512],sk_guess.coeffs[768],
+            sk_guess.coeffs[768],sk_guess.coeffs[769]);
 //    printf("sk guess:[");
 //    for (int i = 0; i < NEWHOPE_N; ++i) {
 //        printf("%d,",sk_guess.coeffs[i]);
 //    }
-//    printf("]\n");
+    printf("]\n");
 
 
 
@@ -156,10 +161,12 @@ void key_recovery(poly *sk_guess){
             //search for each index until we find it.
             while (not_found_yet == true) {
                 int tries = 0;
+                uint8_t sign_change = 0;
                 int8_t tau[2] = {-10, -10};
 
-                while (tries <MAX_TRIES) {
+                while (tries <MAX_TRIES, sign_change < 2) {
                     quadruplet_t l;
+                    sign_change = 0;
                     oracle_bitmap_t oracleErrors;
                     init(&oracleErrors);
                     sampleRandom(&l, -4, 3); //l := drawl()
@@ -170,7 +177,7 @@ void key_recovery(poly *sk_guess){
                         //if the borders are ok then we have positive oracle result on the borders
                         oracleErrors.b[0] = oracleErrors.b[TEST_RANGE - 1] = true;
                         //this tries l_j \in [-3,2] and already fingers \tau_1 and \tau_2 out
-                        queries +=testAndFindTau(tau, &l, j, k, &Uhat, &attacker_key_hypotesis, &oracleErrors);
+                        queries += testAndFindTau(tau, &sign_change, &l, j, k, &Uhat, &attacker_key_hypotesis, &oracleErrors);
                         tries++;
                         printf("+]   ");
                     }
@@ -193,14 +200,14 @@ void key_recovery(poly *sk_guess){
 //                    test_hypothesis(guess_for_s, k, j);
 
                     //saving the recovered coefficient
-                    sk_guess->coeffs[k + (j * SS_BITS)] = guess_for_s;
+                    sk_guess->coeffs[k + (j * SS_BITS)] = (guess_for_s + NEWHOPE_Q) % NEWHOPE_Q ;
+                    printf("s[%d] = %d", k + (j * SS_BITS), guess_for_s);
                     not_found_yet = false;
                     printf("\n");
                 }
             }
         }
     }
-
     printf("Finished hole attack took %d queries and could not find: %d coefficients\n",
             queries, n_not_recovered);
 }
@@ -238,6 +245,8 @@ bool checkAtBorders(quadruplet_t * l, const int quadruplet_index, const int16_t 
  * Checks on the "quadruplet_index" of l in the range of [-3,2] and figures out the sign changes tau_1 and tau_2
  * This function assumes the borders of the quadruplet are already checked and oracle_results contains the correct
  * values
+ * @param tau OUTPUT tau_1 and tau_2
+ * @param sign_changes how often a sign change was found
  * @param l current targeted quadruplet
  * @param quadruplet_index the index in the quadruplet that is targeted
  * @param target_index the global target index in S needed to create the ciphertext
@@ -246,10 +255,10 @@ bool checkAtBorders(quadruplet_t * l, const int quadruplet_index, const int16_t 
  * @param oracle_results the bitmap with the orecle results for this targeted quadruplet
  * @return number of queries used
  */
-uint8_t testAndFindTau(int8_t * tau, quadruplet_t * l, const int quadruplet_index, const int16_t target_index,
-        const poly * Uhat, keyHypothesis_t * k, oracle_bitmap_t * oracle_results){
+uint8_t testAndFindTau(int8_t *tau, uint8_t *sign_changes, quadruplet_t *l, const int quadruplet_index,
+                       const int16_t target_index, const poly *Uhat, keyHypothesis_t *k,
+                       oracle_bitmap_t *oracle_results) {
     uint8_t queries = 0;
-    uint8_t sign_changes = 0;
     int16_t l_test_value = -3; //start with -3 as this
 
     for (int i = 1; i < TEST_RANGE - 1; ++i) {
@@ -261,7 +270,7 @@ uint8_t testAndFindTau(int8_t * tau, quadruplet_t * l, const int quadruplet_inde
 
         //check and set tau_2 from false(0) -> true(1)
         if (oracle_results->b[i-1] == false && oracle_results->b[i] == true) {
-            sign_changes++;         //should always be 2 here but this is taken from the magma code
+            (*sign_changes)++;         //should always be 2 here but this is taken from the magma code
             tau[1] = l_test_value - 1;  //using the test value as this closer to the paper instead of magma version
             //not fully necessary but again follow the magma code
             for (int r = i +1; r < TEST_RANGE - 1; ++r) {
@@ -271,19 +280,19 @@ uint8_t testAndFindTau(int8_t * tau, quadruplet_t * l, const int quadruplet_inde
 
         //check and set tau_1 from true(1) -> false(0)
         if(oracle_results->b[i-1] == true && oracle_results->b[i] == false){
-            sign_changes++;         //should be 1 here ...
+            (*sign_changes)++;         //should be 1 here ...
             tau[0] = l_test_value;  //using the test value as this closer to the paper instead of magma version
         }
 
         //check if only have on time false(0) then this is the case at at i=6 under the assumtion that we stop after finding
         // tau_2 otherwise
         if(i == 6 && oracle_results->b[i-1] == true){
-            sign_changes++;
+            (*sign_changes)++;
             tau[1] = l_test_value;    //original is i but we are using indices starting form 0 instead of 1
         }
 
         // after 2 sign changes we have all information and can stop
-        if(sign_changes > 1) break;
+        if((*sign_changes) > 1) break;
         //update test value for next run
         l_test_value++;
     }
@@ -341,7 +350,7 @@ void create_attack_ct(const poly * uhat, quadruplet_t *l) {
         //the paer only says (l->l[i] + 4 % 8) but as this gets compressed, we need to "decompress first"
         c.coeffs[i*SS_BITS] = ((l->l[i] + 4 % 8) * NEWHOPE_Q) / 8;
     }
-    printf(" \nc[0]: %d, c[256]: %d, c[512]: %d, c[768]: %d", c.coeffs[0], c.coeffs[256], c.coeffs[512], c.coeffs[768]);
+//    printf(" \nc[0]: %d, c[256]: %d, c[512]: %d, c[768]: %d", c.coeffs[0], c.coeffs[256], c.coeffs[512], c.coeffs[768]);
 
     encode_c(attack_ct, uhat, &c);
 }

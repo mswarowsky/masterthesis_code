@@ -174,6 +174,11 @@ void cpapke_keypair(unsigned char *pk,
         printf("%d,",shat.coeffs[i]);
     }
     printf("]\n");
+
+    printf("real : [%d, %d,...,%d,%d,...,%d,%d,...,%d,%d,...]\n", shat.coeffs[0], shat.coeffs[1],
+           shat.coeffs[256], shat.coeffs[257],
+           shat.coeffs[512],shat.coeffs[768],
+           shat.coeffs[768],shat.coeffs[769]);
 //
     poly_ntt(&shat);
     poly_invntt(&shat);
@@ -270,11 +275,11 @@ void cpapke_dec(unsigned char *m,
 
     //DEBUG
 
-    printf("\nvprime: [");
-    for (int i = 0; i < NEWHOPE_N; ++i) {
-        printf("%d,",vprime.coeffs[i]);
-    }
-    printf("] ");
+//    printf("\nvprime: [");
+//    for (int i = 0; i < NEWHOPE_N; ++i) {
+//        printf("%d,",vprime.coeffs[i]);
+//    }
+//    printf("] ");
 
     //DEBUG END
 
@@ -282,12 +287,12 @@ void cpapke_dec(unsigned char *m,
 
     //DEBUG
 
-    printf("\nk:   [");
-
-    for (int i = 0; i < NEWHOPE_N; ++i) {
-        printf("%d,",tmp.coeffs[i]);
-    }
-    printf("] \n");
+//    printf("\nk:   [");
+//
+//    for (int i = 0; i < NEWHOPE_N; ++i) {
+//        printf("%d,",tmp.coeffs[i]);
+//    }
+//    printf("] \n");
     //DEBUG END
 
   poly_tomsg(m, &tmp);
