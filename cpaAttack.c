@@ -23,7 +23,7 @@ static void encode_c(unsigned char *r, const poly *b, const poly *v);
 
 /***************************** Attack related *******************************/
 #define SS_BITS (NEWHOPE_N/4)
-#define MAX_TRIES 10
+#define MAX_TRIES 1
 #define QUADRUPLET_SIZE 4
 #define TEST_RANGE 8
 
@@ -63,12 +63,15 @@ int16_t find_s(const int8_t * tau);
 void zero(poly * p);
 
 void genfakeU(poly * U, int k);
+
+void printPoly(poly * p);
 /*****************************************************************************/
 
 
 int main() {
     int ret_val;
     poly sk_guess;
+    zero(&sk_guess);
 
     srand(time(0));
 
@@ -79,24 +82,25 @@ int main() {
         return AT_CRYPTO_FAILURE;
     }
 
-//    printf("The Alice keys are :\npk: ");
-//    printfPrams(pk, CRYPTO_PUBLICKEYBYTES);
-//    printf("\nsk: ");
-//    printfPrams(sk, CRYPTO_SECRETKEYBYTES);
-//    printf("\n");
 
     ///////////////////////////////////////////////
     /// DEBUG
     //////////////////////////////////////////////
 
 //    poly Uhat;
-//    genfakeU(&Uhat, 3);
-//    printf("Uhat: [");
+//    genfakeU(&Uhat, 2);
+//    printf("U: [");
 //    for (int i = 0; i < NEWHOPE_N; ++i) {
-//        printf("%d,",Uhat.coeffs[i]);
+//        printf("[%d]-%d,", i, Uhat.coeffs[i]);
 //    }
 //    printf("] \n");
 //    poly_ntt(&Uhat);
+//    poly_invntt(&Uhat);
+//    printf("uhat: [");
+//    for (int i= 0; i < NEWHOPE_N; ++i) {
+//        printf("[%d]-%d,", i, Uhat.coeffs[i] % NEWHOPE_Q);
+//    }
+//    printf("]\n");
 //    quadruplet_t l;
 ////    sampleRandom(&l, -4,3);
 //    l.l[0] = 0;
@@ -114,23 +118,51 @@ int main() {
 //    printf("\n");
 
 
+    poly a, b, k;
+    zero(&a);
+    zero(&b);
+    zero(&k);
+    a.coeffs[0] = 6144;
+    a.coeffs[256] = 3072;
+    a.coeffs[768] = 7680;
 
+    b.coeffs[1022]=96;
+
+    poly_sub(&k, &a, &b);
+
+//    printf("a - b: [");
+//    for (int i= 0; i < NEWHOPE_N; ++i) {
+//        printf("%d ,", k.coeffs[i]);
+//    }
+    printf("]\n");
+
+//    return 1;
     ///////////////////////////////////////////////
     /// DEBUG
     //////////////////////////////////////////////
 
-    // Attack starting here
+//    // Attack starting here
     key_recovery(&sk_guess);
-    printf("guess: [%d, %d,...,%d,%d,...,%d,%d,...,%d,%d,...]\n", sk_guess.coeffs[0], sk_guess.coeffs[1],
-           sk_guess.coeffs[256], sk_guess.coeffs[257],
-            sk_guess.coeffs[512],sk_guess.coeffs[768],
-            sk_guess.coeffs[768],sk_guess.coeffs[769]);
-//    printf("sk guess:[");
-//    for (int i = 0; i < NEWHOPE_N; ++i) {
-//        printf("%d,",sk_guess.coeffs[i]);
-//    }
+
+    poly s;
+    poly_frombytes(&s, sk);
+    poly_invntt(&s);
+    printf("guess :[");
+    for(int i = 0; i < NEWHOPE_N; i++){
+        printf("%d, ", sk_guess.coeffs[i]);
+    }
+    printf("]\nreal s:[");
+    for (int j = 0; j < NEWHOPE_N; j++) {
+        printf("%d, ",s.coeffs[j] % NEWHOPE_Q);
+    }
     printf("]\n");
 
+    int correct = 0;
+    for (int k = 0; k < NEWHOPE_N; ++k) {
+        if(sk_guess.coeffs[k] == s.coeffs[k]) correct++;
+    }
+
+    printf("%d correct - %d wrong\n", correct, NEWHOPE_N - correct);
 
 
     return AT_SUCCESS;
@@ -147,15 +179,14 @@ void key_recovery(poly *sk_guess){
     attacker_key_hypotesis.key[0] = 1;
 
 //    for(int k = 0; k < SS_BITS; k++){
-    for(int k = 0; k < 2; k++){
+    for(int k = 2; k < 3; ++k){
         poly Uhat;
         zero(&Uhat);
         genfakeU(&Uhat, k);
-        //directly convert into NTT domain
-        poly_ntt(&Uhat);
-        //setting U moved to create_attack_ct
+//        printf("U: ");printPoly(&Uhat); ///DEBUG
+
         //target the coefficients in a quadruplet after each other
-        for( int j = 0; j < 4; j++){
+        for( int j = 0; j < 1; ++j){
             bool not_found_yet = true;
             printf("Target index:%d quadruplet index: %d \n", k, j);
             //search for each index until we find it.
@@ -164,7 +195,7 @@ void key_recovery(poly *sk_guess){
                 uint8_t sign_change = 0;
                 int8_t tau[2] = {-10, -10};
 
-                while (tries <MAX_TRIES, sign_change < 2) {
+                while (tries < MAX_TRIES && sign_change < 2) {
                     quadruplet_t l;
                     sign_change = 0;
                     oracle_bitmap_t oracleErrors;
@@ -173,6 +204,7 @@ void key_recovery(poly *sk_guess){
 
                     //Border check ???
                     if(checkAtBorders(&l, j,k, &Uhat,&attacker_key_hypotesis)){
+                        printf("l:[%d, %d, %d, %d] ", l.l[0], l.l[1], l.l[2],l.l[3]);
                         printf("[+,");
                         //if the borders are ok then we have positive oracle result on the borders
                         oracleErrors.b[0] = oracleErrors.b[TEST_RANGE - 1] = true;
@@ -200,7 +232,7 @@ void key_recovery(poly *sk_guess){
 //                    test_hypothesis(guess_for_s, k, j);
 
                     //saving the recovered coefficient
-                    sk_guess->coeffs[k + (j * SS_BITS)] = (guess_for_s + NEWHOPE_Q) % NEWHOPE_Q ;
+                    sk_guess->coeffs[k + (j * SS_BITS)] = ((guess_for_s + NEWHOPE_Q) % NEWHOPE_Q );
                     printf("s[%d] = %d", k + (j * SS_BITS), guess_for_s);
                     not_found_yet = false;
                     printf("\n");
@@ -265,6 +297,7 @@ uint8_t testAndFindTau(int8_t *tau, uint8_t *sign_changes, quadruplet_t *l, cons
         l->l[quadruplet_index] = l_test_value;
         create_attack_ct(Uhat, l);
         oracle_results->b[i] = mismatchOracle(attack_ct, k);
+//        printf("\n");
         oracle_results->b[i] == true ? printf("+,") : printf("-,");
         queries++;
 
@@ -286,13 +319,19 @@ uint8_t testAndFindTau(int8_t *tau, uint8_t *sign_changes, quadruplet_t *l, cons
 
         //check if only have on time false(0) then this is the case at at i=6 under the assumtion that we stop after finding
         // tau_2 otherwise
-        if(i == 6 && oracle_results->b[i-1] == true){
+        if(i == 6 && oracle_results->b[i] == false){
             (*sign_changes)++;
             tau[1] = l_test_value;    //original is i but we are using indices starting form 0 instead of 1
         }
 
         // after 2 sign changes we have all information and can stop
-        if((*sign_changes) > 1) break;
+//        if((*sign_changes) > 1) {
+//            for (int j = i+1; j < TEST_RANGE - 1; ++j) {
+//                oracle_results->b[i] = true;
+//                printf("+,");
+//            }
+//            break;
+//        }
         //update test value for next run
         l_test_value++;
     }
@@ -310,9 +349,14 @@ void sampleRandom(quadruplet_t * q, int16_t lower_bound, int16_t upper_bound){
 
     int16_t dist = upper_bound - lower_bound + 1;
 
-    for (int i = 0; i < QUADRUPLET_SIZE; ++i) {
-        q->l[i] = (rand() % dist) + lower_bound;
-    }
+//    for (int i = 0; i < QUADRUPLET_SIZE; ++i) {
+//        q->l[i] = (rand() % dist) + lower_bound;
+//    }
+    ///DEBUG
+    q->l[0] = -4;
+    q->l[1] = -2;
+    q->l[2] = -4;
+    q->l[3] = 1;
 }
 
 void init(oracle_bitmap_t * b){
@@ -324,6 +368,7 @@ void init(oracle_bitmap_t * b){
 /**
  * Gernerates the fake public key from the attacker(Bob) with
  * U = s/2 x^(-k)
+ * and converts to ntt domain
  * @param output U
  * @param input k
  */
@@ -332,9 +377,12 @@ void genfakeU(poly * U, int k){
     if(k == 0){
         U->coeffs[0] = S/2;
     } else{
-
+        U->coeffs[NEWHOPE_N - k] = NEWHOPE_Q - (S/2);
     }
-    U->coeffs[NEWHOPE_N - k] = NEWHOPE_Q - (S/2);
+    poly_ntt(U);
+    poly_invntt(U);
+    poly_ntt(U);
+
 }
 
 /**
@@ -347,10 +395,9 @@ void create_attack_ct(const poly * uhat, quadruplet_t *l) {
     zero(&c);
     for (int i = 0; i < QUADRUPLET_SIZE; ++i) {
 //        c.coeffs[i*SS_BITS] = ((l->l[i] + 4 % 8 + NEWHOPE_Q )<< 8);
-        //the paer only says (l->l[i] + 4 % 8) but as this gets compressed, we need to "decompress first"
+        //the paper only says (l->l[i] + 4 % 8) but as this gets compressed, we need to "decompress first"
         c.coeffs[i*SS_BITS] = ((l->l[i] + 4 % 8) * NEWHOPE_Q) / 8;
     }
-//    printf(" \nc[0]: %d, c[256]: %d, c[512]: %d, c[768]: %d", c.coeffs[0], c.coeffs[256], c.coeffs[512], c.coeffs[768]);
 
     encode_c(attack_ct, uhat, &c);
 }
@@ -405,7 +452,7 @@ int16_t find_s(const int8_t * tau_1_2){
     } else {
         guess_for_s = (2*(tau/2)) + 1;
     }
-    return tau;
+    return guess_for_s;
 }
 
 /**
@@ -416,6 +463,18 @@ void zero(poly * p){
     for (int i = 0; i < NEWHOPE_N; ++i) {
         p->coeffs[i] = 0;
     }
+}
+
+/**
+ * Prints all coefficients of the polynom p
+ * @param p
+ */
+void printPoly(poly * p){
+    printf("[");
+    for (int i= 0; i < NEWHOPE_N; ++i) {
+        printf("%d:%d ,", i,p->coeffs[i]);
+    }
+    printf("]\n");
 }
 
 /*************************************************
@@ -434,4 +493,5 @@ static void encode_c(unsigned char *r, const poly *b, const poly *v)
     poly_tobytes(r,b);
     poly_compress(r+NEWHOPE_POLYBYTES,v);
 }
+
 
