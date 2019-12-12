@@ -23,7 +23,7 @@ static void encode_c(unsigned char *r, const poly *b, const poly *v);
 
 /***************************** Attack related *******************************/
 #define SS_BITS (NEWHOPE_N/4)
-#define MAX_TRIES 10
+#define MAX_TRIES 20
 #define QUADRUPLET_SIZE 4
 #define TEST_RANGE 8
 
@@ -160,23 +160,23 @@ int main() {
         printf("%d, ", sk_guess.coeffs[i]);
     }
     printf("]\nreal s:[");
-    int not_findable = 0;
     for (int j = 0; j < NEWHOPE_N; j++) {
-        int coeff = s.coeffs[j] % NEWHOPE_Q;
-        printf("%d, ",coeff);
-        if(coeff > 4 && coeff < 12283) {
-            not_findable++;
-        }
-
+        printf("%d, ",s.coeffs[j] % NEWHOPE_Q);
     }
     printf("]\n");
 
+    int not_findable = 0;
     int correct = 0;
     for (int j = 0; j < NEWHOPE_N; j++) {
-        if(sk_guess.coeffs[j] !=  s.coeffs[j] % NEWHOPE_Q){
-            printf("wrong at %d real: %d vs. %d\n", j, s.coeffs[j] % NEWHOPE_Q, sk_guess.coeffs[j]);
+        uint16_t real_coefficient = s.coeffs[j] % NEWHOPE_Q;
+        if(real_coefficient > 4 && real_coefficient < 12283) {
+            not_findable++;
         } else {
-            correct++;
+            if(sk_guess.coeffs[j] !=  real_coefficient){
+                printf("wrong at %d real: %d vs. %d\n", j, real_coefficient, sk_guess.coeffs[j]);
+            } else {
+                correct++;
+            }
         }
     }
 
@@ -197,14 +197,15 @@ void key_recovery(poly *sk_guess){
     attacker_key_hypotesis.key[0] = 1;
 
     for(int k = 0; k < SS_BITS; k++){
-//    for(int k = 0; k < 1; ++k){
+//    for(int k = 237; k < 238; ++k){
         poly Uhat;
         zero(&Uhat);
         genfakeU(&Uhat, k);
 //        printf("U: ");printPoly(&Uhat); ///DEBUG
 
         //target the coefficients in a quadruplet after each other
-        for( int j = 0; j < 4; ++j){
+        for( int j =  0; j < 4; ++j){
+//        for( int j =  3; j < 4; ++j){
             bool not_found_yet = true;
             printf("Target index:%d quadruplet index: %d \n", k, j);
             //search for each index until we find it.
@@ -236,7 +237,7 @@ void key_recovery(poly *sk_guess){
                 }
 
                 //check if we didn't manage to find something proper
-                if(tries == MAX_TRIES){
+                if(tries == MAX_TRIES && tau[1] == -10){
                     printf("\nClould not find coefficient %d :(\n", k+(j * SS_BITS));
                     n_not_recovered++;
                     not_found_yet = false;
