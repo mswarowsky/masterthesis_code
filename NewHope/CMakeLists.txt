@@ -2,11 +2,11 @@ set(COMMON_SOUCES poly.c reduce.c fips202.c verify.c cpapke.c ntt.c precomp.c)
 set(HEADERS ${HEADERS} params.h poly.h randombytes.h ntt.h reduce.h verify.h cpapke.h)
 
 # creating a libary to use the cpa scheme
-add_library(cpakem512 STATIC ${COMMON_SOUCES} ${HEADERS} cpakem.c rng.c)
+add_library(cpakem512 STATIC ${COMMON_SOUCES} ${HEADERS} cpakem.c randombytes.c)
 set_target_properties(cpakem512 PROPERTIES COMPILE_DEFINITIONS "NEWHOPE_N=512 ")
 target_link_libraries(cpakem512 crypto)
 
-add_library(cpakem1024 STATIC ${COMMON_SOUCES} ${HEADERS} cpakem.c rng.c)
+add_library(cpakem1024 STATIC ${COMMON_SOUCES} ${HEADERS} cpakem.c randombytes.c)
 set_target_properties(cpakem1024 PROPERTIES COMPILE_DEFINITIONS "NEWHOPE_N=1024 ")
 target_link_libraries(cpakem1024 crypto)
 

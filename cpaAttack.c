@@ -3,6 +3,8 @@
 #include <assert.h>
 #include <time.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <string.h>
 #include "NewHope/api.h"
 #include "NewHope/poly.h"
 #include "NewHope/cpapke.h"
@@ -13,19 +15,20 @@
 #define AT_DATA_ERROR      -3
 #define AT_CRYPTO_FAILURE  -4
 
-/** q = 8s + 1 **/
-#define S 1536
+#define printf //
 
 unsigned char       ct[CRYPTO_CIPHERTEXTBYTES], ss[CRYPTO_BYTES], ss1[CRYPTO_BYTES];
 unsigned char       pk[CRYPTO_PUBLICKEYBYTES], sk[CRYPTO_SECRETKEYBYTES];
 
 static void encode_c(unsigned char *r, const poly *b, const poly *v);
 
+
 /***************************** Attack related *******************************/
 #define SS_BITS (NEWHOPE_N/4)
 #define MAX_TRIES 20
 #define QUADRUPLET_SIZE 4
 #define TEST_RANGE 8
+#define S 1536  /** q = 8s + 1 **/
 
 typedef struct {
     int16_t l[QUADRUPLET_SIZE];
@@ -41,7 +44,9 @@ typedef struct {
 
 unsigned char attack_ct[CRYPTO_CIPHERTEXTBYTES];
 
-void key_recovery(poly *sk_guess);
+void full_attack();
+
+int key_recovery(poly *sk_guess);
 
 void sampleRandom(quadruplet_t * q, int16_t lower_bound, int16_t upper_bound);
 
@@ -68,7 +73,20 @@ void printPoly(poly * p);
 /*****************************************************************************/
 
 
-int main() {
+int main(){
+    FILE * log = fopen("attack.log", "a+");
+    if(log == NULL){
+        printf("File could not open: %s", strerror(errno));
+        return -1;
+    }
+    for (int i = 0; i < 20; ++i) {
+        full_attack(log);
+    }
+
+    fclose(log);
+}
+
+void full_attack(FILE * log) {
     int ret_val;
     poly sk_guess;
     zero(&sk_guess);
@@ -79,82 +97,17 @@ int main() {
     // get some keys
     if ( (ret_val = crypto_kem_keypair(pk, sk)) != 0) {
         printf("crypto_kem_keypair returned <%d>\n", ret_val);
-        return AT_CRYPTO_FAILURE;
+        return;
     }
 
 
-    ///////////////////////////////////////////////
-    /// DEBUG
-    //////////////////////////////////////////////
-
-//    const int8_t tau[2] = {-2, 1};
-//    int16_t secret = find_s(tau);
-//
-//    printf("s : %d \n", secret);
-//    return 0;
-
-
-
-//    poly Uhat;
-//    genfakeU(&Uhat, 2);
-//    printf("U: [");
-//    for (int i = 0; i < NEWHOPE_N; ++i) {
-//        printf("[%d]-%d,", i, Uhat.coeffs[i]);
-//    }
-//    printf("] \n");
-//    poly_ntt(&Uhat);
-//    poly_invntt(&Uhat);
-//    printf("uhat: [");
-//    for (int i= 0; i < NEWHOPE_N; ++i) {
-//        printf("[%d]-%d,", i, Uhat.coeffs[i] % NEWHOPE_Q);
-//    }
-//    printf("]\n");
-//    quadruplet_t l;
-////    sampleRandom(&l, -4,3);
-//    l.l[0] = 0;
-//    l.l[1] = -3;
-//    l.l[2] = -2;
-//    l.l[3] = -1;
-//
-//    for(int i = -4; i <= 3; i++){
-//        l.l[0]=i;
-//        create_attack_ct(&Uhat, &l);
-//        cpapke_dec(ss, attack_ct, sk);
-//        printf("  l:[%d, %d, %d, %d] \nss: ", l.l[0], l.l[1], l.l[2], l.l[3]);
-//        printfPrams(ss, CRYPTO_BYTES);
-//    }
-//    printf("\n");
-
-
-//    poly a, b, k;
-//    zero(&a);
-//    zero(&b);
-//    zero(&k);
-//    a.coeffs[0] = 6144;
-//    a.coeffs[256] = 3072;
-//    a.coeffs[768] = 7680;
-//
-//    b.coeffs[1022]=96;
-//
-//    poly_sub(&k, &a, &b);
-
-//    printf("a - b: [");
-//    for (int i= 0; i < NEWHOPE_N; ++i) {
-//        printf("%d ,", k.coeffs[i]);
-//    }
-//    printf("]\n");
-
-//    return 1;
-    ///////////////////////////////////////////////
-    /// DEBUG
-    //////////////////////////////////////////////
-
 //    // Attack starting here
-    key_recovery(&sk_guess);
+    int queries = key_recovery(&sk_guess);
 
     poly s;
     poly_frombytes(&s, sk);
     poly_invntt(&s);
+    
     printf("guess :[");
     for(int i = 0; i < NEWHOPE_N; i++){
         printf("%d, ", sk_guess.coeffs[i]);
@@ -181,12 +134,11 @@ int main() {
     }
 
     printf("%d correct - %d wrong not possible: %d\n", correct, NEWHOPE_N - correct, not_findable);
-
-
-    return AT_SUCCESS;
+    fprintf(log,"%d;%d;%d;%d\n",correct,NEWHOPE_N - correct, not_findable, queries);
 }
 
-void key_recovery(poly *sk_guess){
+
+int key_recovery(poly *sk_guess){
     int queries = 0;
     uint16_t n_not_recovered = 0;
     // creating the guessed key for the hacker \nu_E = (1,0,0,...,0)
@@ -259,8 +211,8 @@ void key_recovery(poly *sk_guess){
             }
         }
     }
-    printf("Finished hole attack took %d queries and could not find: %d coefficients\n",
-            queries, n_not_recovered);
+    printf("Finished hole attack took %d queries and could not find: %d coefficients\n", queries, n_not_recovered);
+    return queries;
 }
 
 /**
@@ -435,10 +387,10 @@ bool mismatchOracle(const unsigned char * ciphertext, keyHypothesis_t * hypothes
     cpapke_dec(ss, ciphertext, sk);
 
 //    printf("compare ss: ");
-//    printfPrams(ss, CRYPTO_BYTES);
+//    printPrams(ss, CRYPTO_BYTES);
 //
 //    printf("\ncompare hp: ");
-//    printfPrams(hypothesis->key, CRYPTO_BYTES);
+//    printPrams(hypothesis->key, CRYPTO_BYTES);
 //    printf("\n");
     //now compare the hypothesis with the key from alice
     uint16_t errors = 0;
@@ -488,7 +440,7 @@ void zero(poly * p){
 }
 
 /**
- * Prints all coefficients of the polynom p
+ * prints all coefficients of the polynom p
  * @param p
  */
 void printPoly(poly * p){
