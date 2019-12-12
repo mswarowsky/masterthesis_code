@@ -87,6 +87,14 @@ int main() {
     /// DEBUG
     //////////////////////////////////////////////
 
+//    const int8_t tau[2] = {-2, 1};
+//    int16_t secret = find_s(tau);
+//
+//    printf("s : %d \n", secret);
+//    return 0;
+
+
+
 //    poly Uhat;
 //    genfakeU(&Uhat, 2);
 //    printf("U: [");
@@ -152,17 +160,27 @@ int main() {
         printf("%d, ", sk_guess.coeffs[i]);
     }
     printf("]\nreal s:[");
+    int not_findable = 0;
     for (int j = 0; j < NEWHOPE_N; j++) {
-        printf("%d, ",s.coeffs[j] % NEWHOPE_Q);
+        int coeff = s.coeffs[j] % NEWHOPE_Q;
+        printf("%d, ",coeff);
+        if(coeff > 4 && coeff < 12283) {
+            not_findable++;
+        }
+
     }
     printf("]\n");
 
     int correct = 0;
-    for (int k = 0; k < NEWHOPE_N; ++k) {
-        if(sk_guess.coeffs[k] == s.coeffs[k]) correct++;
+    for (int j = 0; j < NEWHOPE_N; j++) {
+        if(sk_guess.coeffs[j] !=  s.coeffs[j] % NEWHOPE_Q){
+            printf("wrong at %d real: %d vs. %d\n", j, s.coeffs[j] % NEWHOPE_Q, sk_guess.coeffs[j]);
+        } else {
+            correct++;
+        }
     }
 
-    printf("%d correct - %d wrong\n", correct, NEWHOPE_N - correct);
+    printf("%d correct - %d wrong not possible: %d\n", correct, NEWHOPE_N - correct, not_findable);
 
 
     return AT_SUCCESS;
@@ -178,8 +196,8 @@ void key_recovery(poly *sk_guess){
     }
     attacker_key_hypotesis.key[0] = 1;
 
-//    for(int k = 0; k < SS_BITS; k++){
-    for(int k = 0; k < SS_BITS; ++k){
+    for(int k = 0; k < SS_BITS; k++){
+//    for(int k = 0; k < 1; ++k){
         poly Uhat;
         zero(&Uhat);
         genfakeU(&Uhat, k);
@@ -352,6 +370,11 @@ void sampleRandom(quadruplet_t * q, int16_t lower_bound, int16_t upper_bound){
     for (int i = 0; i < QUADRUPLET_SIZE; ++i) {
         q->l[i] = (rand() % dist) + lower_bound;
     }
+//    ///DEBUG
+//    q->l[0] = 2;
+//    q->l[1] = 2;
+//    q->l[2] = 1;
+//    q->l[3] = -2;
 }
 
 void init(oracle_bitmap_t * b){
@@ -448,7 +471,7 @@ int16_t find_s(const int8_t * tau_1_2){
     if((tau % 2) == 0){
         guess_for_s = tau;
     } else {
-        guess_for_s = (2*(tau/2)) + 1;
+        guess_for_s = (2*(tau>>1)) + 1;
     }
     return guess_for_s;
 }
