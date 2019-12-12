@@ -277,9 +277,9 @@ void cpapke_dec(unsigned char *m,
 
   ///DEBUG
 //    poly_invntt(&shat);
-//    printf("tmp: [");
+//    printf("C: [");
 //    for (int i= 0; i < NEWHOPE_N; ++i) {
-//        printf("[%d]:%d,", i, tmp.coeffs[i] % NEWHOPE_Q);
+//        printf("[%d]:%d,", i, vprime.coeffs[i] % NEWHOPE_Q);
 //    }
 //    printf("]\n");
     ///END DEBUG
@@ -288,12 +288,15 @@ void cpapke_dec(unsigned char *m,
     poly_sub(&tmp, &vprime, &tmp);
 
   ////DEBUG
-    printf("C- U*s: [");
-    for (int i= 0; i < NEWHOPE_N; ++i) {
-        printf("%d ,", tmp.coeffs[i]);
-    }
-    printf("]\n");
+//    printf("C- U*s: [");
+//    printf("%d , %d , %d, %d", tmp.coeffs[0], tmp.coeffs[256], tmp.coeffs[512],tmp.coeffs[768]);
+////    for (int i= 0; i < NEWHOPE_N; ++i) {
+////        printf("%d ,", tmp.coeffs[i]);
+////    }
+//    printf("]\n");
     ///END DEBUG
 
   poly_tomsg(m, &tmp);
+
+//  printf("m:%02X%02X%02X\n", m[0], m[1], m[2]);
 }

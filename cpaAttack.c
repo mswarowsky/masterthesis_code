@@ -23,7 +23,7 @@ static void encode_c(unsigned char *r, const poly *b, const poly *v);
 
 /***************************** Attack related *******************************/
 #define SS_BITS (NEWHOPE_N/4)
-#define MAX_TRIES 1
+#define MAX_TRIES 10
 #define QUADRUPLET_SIZE 4
 #define TEST_RANGE 8
 
@@ -39,7 +39,7 @@ typedef struct {
     unsigned char key[CRYPTO_BYTES];
 } keyHypothesis_t;
 
-unsigned  char attack_ct[CRYPTO_CIPHERTEXTBYTES];
+unsigned char attack_ct[CRYPTO_CIPHERTEXTBYTES];
 
 void key_recovery(poly *sk_guess);
 
@@ -118,23 +118,23 @@ int main() {
 //    printf("\n");
 
 
-    poly a, b, k;
-    zero(&a);
-    zero(&b);
-    zero(&k);
-    a.coeffs[0] = 6144;
-    a.coeffs[256] = 3072;
-    a.coeffs[768] = 7680;
-
-    b.coeffs[1022]=96;
-
-    poly_sub(&k, &a, &b);
+//    poly a, b, k;
+//    zero(&a);
+//    zero(&b);
+//    zero(&k);
+//    a.coeffs[0] = 6144;
+//    a.coeffs[256] = 3072;
+//    a.coeffs[768] = 7680;
+//
+//    b.coeffs[1022]=96;
+//
+//    poly_sub(&k, &a, &b);
 
 //    printf("a - b: [");
 //    for (int i= 0; i < NEWHOPE_N; ++i) {
 //        printf("%d ,", k.coeffs[i]);
 //    }
-    printf("]\n");
+//    printf("]\n");
 
 //    return 1;
     ///////////////////////////////////////////////
@@ -179,14 +179,14 @@ void key_recovery(poly *sk_guess){
     attacker_key_hypotesis.key[0] = 1;
 
 //    for(int k = 0; k < SS_BITS; k++){
-    for(int k = 2; k < 3; ++k){
+    for(int k = 0; k < SS_BITS; ++k){
         poly Uhat;
         zero(&Uhat);
         genfakeU(&Uhat, k);
 //        printf("U: ");printPoly(&Uhat); ///DEBUG
 
         //target the coefficients in a quadruplet after each other
-        for( int j = 0; j < 1; ++j){
+        for( int j = 0; j < 4; ++j){
             bool not_found_yet = true;
             printf("Target index:%d quadruplet index: %d \n", k, j);
             //search for each index until we find it.
@@ -349,14 +349,9 @@ void sampleRandom(quadruplet_t * q, int16_t lower_bound, int16_t upper_bound){
 
     int16_t dist = upper_bound - lower_bound + 1;
 
-//    for (int i = 0; i < QUADRUPLET_SIZE; ++i) {
-//        q->l[i] = (rand() % dist) + lower_bound;
-//    }
-    ///DEBUG
-    q->l[0] = -4;
-    q->l[1] = -2;
-    q->l[2] = -4;
-    q->l[3] = 1;
+    for (int i = 0; i < QUADRUPLET_SIZE; ++i) {
+        q->l[i] = (rand() % dist) + lower_bound;
+    }
 }
 
 void init(oracle_bitmap_t * b){
@@ -394,12 +389,15 @@ void create_attack_ct(const poly * uhat, quadruplet_t *l) {
     poly c;
     zero(&c);
     for (int i = 0; i < QUADRUPLET_SIZE; ++i) {
-//        c.coeffs[i*SS_BITS] = ((l->l[i] + 4 % 8 + NEWHOPE_Q )<< 8);
         //the paper only says (l->l[i] + 4 % 8) but as this gets compressed, we need to "decompress first"
         c.coeffs[i*SS_BITS] = ((l->l[i] + 4 % 8) * NEWHOPE_Q) / 8;
+//        c.coeffs[i*SS_BITS] = (l->l[i] + 4 % 8);
     }
 
+//    printf("C[768]:%d\n", c.coeffs[768]);
+
     encode_c(attack_ct, uhat, &c);
+
 }
 
 /**

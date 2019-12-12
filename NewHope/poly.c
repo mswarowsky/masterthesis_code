@@ -147,7 +147,9 @@ void poly_decompress(poly *r, const unsigned char *a)
     r->coeffs[i+7] = (a[2] >> 5);
     a += 3;
     for(j=0;j<8;j++)
-      r->coeffs[i+j] = ((uint32_t)r->coeffs[i+j] * NEWHOPE_Q + 4) >> 3;
+//      r->coeffs[i+j] = ((uint32_t)r->coeffs[i+j] * NEWHOPE_Q + 4) >> 3;
+        r->coeffs[i+j] = ((uint32_t)r->coeffs[i+j] * NEWHOPE_Q) >> 3; // Floor rounding instead of correct rounding
+
   }
 }
 
