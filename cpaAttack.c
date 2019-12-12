@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+#include <pthread.h>
 #include "NewHope/api.h"
 #include "NewHope/poly.h"
 #include "NewHope/cpapke.h"
@@ -17,10 +18,13 @@
 
 #define printf //
 
-unsigned char       ct[CRYPTO_CIPHERTEXTBYTES], ss[CRYPTO_BYTES], ss1[CRYPTO_BYTES];
-unsigned char       pk[CRYPTO_PUBLICKEYBYTES], sk[CRYPTO_SECRETKEYBYTES];
+
 
 static void encode_c(unsigned char *r, const poly *b, const poly *v);
+
+// Multithreading stuff
+pthread_mutex_t lock;
+void * testRun(void * arg);
 
 
 /***************************** Attack related *******************************/
@@ -42,26 +46,24 @@ typedef struct {
     unsigned char key[CRYPTO_BYTES];
 } keyHypothesis_t;
 
-unsigned char attack_ct[CRYPTO_CIPHERTEXTBYTES];
-
 void full_attack();
 
-int key_recovery(poly *sk_guess);
+int key_recovery(poly *sk_guess, unsigned char * sk);
 
 void sampleRandom(quadruplet_t * q, int16_t lower_bound, int16_t upper_bound);
 
 void init(oracle_bitmap_t * b);
 
-void create_attack_ct(const poly *Uhat, quadruplet_t *l);
+void create_attack_ct(const poly *Uhat, quadruplet_t *l, unsigned char * attack_ct);
 
 bool checkAtBorders(quadruplet_t * l, int quadruplet_index, int16_t target_index, const poly * Uhat,
-        keyHypothesis_t * k);
+                    keyHypothesis_t * k,  unsigned char *sk);
 
 uint8_t testAndFindTau(int8_t *tau, uint8_t *sign_changes, quadruplet_t *l, const int quadruplet_index,
                        const int16_t target_index, const poly *Uhat, keyHypothesis_t *k,
-                       oracle_bitmap_t *oracle_results);
+                       oracle_bitmap_t *oracle_results,  unsigned char * sk);
 
-bool mismatchOracle(const unsigned char * ciphertext, keyHypothesis_t * hypothesis);
+bool mismatchOracle(const unsigned char * ciphertext, keyHypothesis_t * hypothesis, unsigned char *sk);
 
 int16_t find_s(const int8_t * tau);
 
@@ -74,20 +76,45 @@ void printPoly(poly * p);
 
 
 int main(){
+    if (pthread_mutex_init(&lock, NULL) != 0)
+    {
+        printf("\n mutex init failed\n");
+        return 1;
+    }
+
+    pthread_t t1, t2,t3, t4;
+    pthread_create(&t1, NULL, testRun, NULL);
+    pthread_create(&t2, NULL, testRun, NULL);
+    pthread_create(&t3, NULL, testRun, NULL);
+    pthread_create(&t4, NULL, testRun, NULL);
+
+    pthread_join(t1, NULL);
+    pthread_join(t2, NULL);
+    pthread_join(t3, NULL);
+    pthread_join(t4, NULL);
+}
+
+void * testRun(void * arg){
     FILE * log = fopen("attack.log", "a+");
     if(log == NULL){
         printf("File could not open: %s", strerror(errno));
-        return -1;
+        return NULL;
     }
+
     for (int i = 0; i < 20; ++i) {
         full_attack(log);
     }
 
     fclose(log);
+    return NULL;
 }
 
 void full_attack(FILE * log) {
     int ret_val;
+//    unsigned char       ct[CRYPTO_CIPHERTEXTBYTES], ss[CRYPTO_BYTES], ss1[CRYPTO_BYTES];
+    unsigned char       pk[CRYPTO_PUBLICKEYBYTES], sk[CRYPTO_SECRETKEYBYTES];
+
+
     poly sk_guess;
     zero(&sk_guess);
 
@@ -102,7 +129,7 @@ void full_attack(FILE * log) {
 
 
 //    // Attack starting here
-    int queries = key_recovery(&sk_guess);
+    int queries = key_recovery(&sk_guess, sk);
 
     poly s;
     poly_frombytes(&s, sk);
@@ -134,12 +161,15 @@ void full_attack(FILE * log) {
     }
 
     printf("%d correct - %d wrong not possible: %d\n", correct, NEWHOPE_N - correct, not_findable);
+    pthread_mutex_lock(&lock);
     fprintf(log,"%d;%d;%d;%d\n",correct,NEWHOPE_N - correct, not_findable, queries);
+    pthread_mutex_unlock(&lock);
 }
 
 
-int key_recovery(poly *sk_guess){
+int key_recovery(poly *sk_guess, unsigned char * sk){
     int queries = 0;
+    unsigned char attack_ct[CRYPTO_CIPHERTEXTBYTES];
     uint16_t n_not_recovered = 0;
     // creating the guessed key for the hacker \nu_E = (1,0,0,...,0)
     keyHypothesis_t attacker_key_hypotesis;
@@ -174,13 +204,14 @@ int key_recovery(poly *sk_guess){
                     sampleRandom(&l, -4, 3); //l := drawl()
 
                     //Border check ???
-                    if(checkAtBorders(&l, j,k, &Uhat,&attacker_key_hypotesis)){
+                    if(checkAtBorders(&l, j,k, &Uhat,&attacker_key_hypotesis, sk)){
                         printf("l:[%d, %d, %d, %d] ", l.l[0], l.l[1], l.l[2],l.l[3]);
                         printf("[+,");
                         //if the borders are ok then we have positive oracle result on the borders
                         oracleErrors.b[0] = oracleErrors.b[TEST_RANGE - 1] = true;
                         //this tries l_j \in [-3,2] and already fingers \tau_1 and \tau_2 out
-                        queries += testAndFindTau(tau, &sign_change, &l, j, k, &Uhat, &attacker_key_hypotesis, &oracleErrors);
+                        queries += testAndFindTau(tau, &sign_change, &l, j, k, &Uhat, &attacker_key_hypotesis,
+                                &oracleErrors, sk);
                         tries++;
                         printf("+]   ");
                     }
@@ -226,18 +257,20 @@ int key_recovery(poly *sk_guess){
  * @param k the guessed key
  * @return
  */
-bool checkAtBorders(quadruplet_t * l, const int quadruplet_index, const int16_t target_index, const poly * Uhat, keyHypothesis_t * k){
+bool checkAtBorders(quadruplet_t * l, const int quadruplet_index, const int16_t target_index, const poly * Uhat,
+                    keyHypothesis_t * k, unsigned char * sk){
     uint16_t backup;
     bool errorLowerBound;
     bool errorUpperBound;
+    unsigned char attack_ct[CRYPTO_CIPHERTEXTBYTES];
 
     backup = l->l[quadruplet_index];
     l->l[quadruplet_index] = -4;
-    create_attack_ct(Uhat, l);
-    errorLowerBound = mismatchOracle(attack_ct, k);
+    create_attack_ct(Uhat, l, attack_ct);
+    errorLowerBound = mismatchOracle(attack_ct, k, sk);
     l->l[quadruplet_index] = 3;
-    create_attack_ct(Uhat, l);
-    errorUpperBound = mismatchOracle(attack_ct, k);
+    create_attack_ct(Uhat, l, attack_ct);
+    errorUpperBound = mismatchOracle(attack_ct, k, sk);
 
     //restoring the quadruplet
     l->l[quadruplet_index] = backup;
@@ -260,14 +293,15 @@ bool checkAtBorders(quadruplet_t * l, const int quadruplet_index, const int16_t 
  */
 uint8_t testAndFindTau(int8_t *tau, uint8_t *sign_changes, quadruplet_t *l, const int quadruplet_index,
                        const int16_t target_index, const poly *Uhat, keyHypothesis_t *k,
-                       oracle_bitmap_t *oracle_results) {
+                       oracle_bitmap_t *oracle_results, unsigned char * sk) {
     uint8_t queries = 0;
     int16_t l_test_value = -3; //start with -3 as this
+    unsigned char attack_ct[CRYPTO_CIPHERTEXTBYTES];
 
     for (int i = 1; i < TEST_RANGE - 1; ++i) {
         l->l[quadruplet_index] = l_test_value;
-        create_attack_ct(Uhat, l);
-        oracle_results->b[i] = mismatchOracle(attack_ct, k);
+        create_attack_ct(Uhat, l, attack_ct);
+        oracle_results->b[i] = mismatchOracle(attack_ct, k, sk);
 //        printf("\n");
         oracle_results->b[i] == true ? printf("+,") : printf("-,");
         queries++;
@@ -361,7 +395,7 @@ void genfakeU(poly * U, int k){
  * @param Uhat in NTT domain
  * @param l
  */
-void create_attack_ct(const poly * uhat, quadruplet_t *l) {
+void create_attack_ct(const poly * uhat, quadruplet_t *l, unsigned char * attack_ct) {
     poly c;
     zero(&c);
     for (int i = 0; i < QUADRUPLET_SIZE; ++i) {
@@ -382,7 +416,8 @@ void create_attack_ct(const poly * uhat, quadruplet_t *l) {
  * @param hypothesis
  * @return false(0) if the keys are the same otherwise true(1)
  */
-bool mismatchOracle(const unsigned char * ciphertext, keyHypothesis_t * hypothesis){
+bool mismatchOracle(const unsigned char * ciphertext, keyHypothesis_t * hypothesis, unsigned char * sk){
+    unsigned char ss[CRYPTO_BYTES];
     //first get the shared key from Alice
     cpapke_dec(ss, ciphertext, sk);
 

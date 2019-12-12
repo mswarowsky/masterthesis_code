@@ -9,6 +9,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11")
 
 set(CMAKE_CXX_STANDARD 11)
 
+find_package (Threads)
 
 # Use the nist flags
 set(NIST_FLAGS "-O3 -fomit-frame-pointer -march=native -fPIC -no-pie")
@@ -21,6 +22,8 @@ add_subdirectory(NewHope)
 add_executable(cpaTest1024 cpaTest.c printParamas.h)
 target_link_libraries(cpaTest1024 cpakem1024)
 
+
 # Attack prgoramms
 add_executable(cpaAttack cpaAttack.c)
 target_link_libraries(cpaAttack cpakem1024)
+target_link_libraries(cpaAttack ${CMAKE_THREAD_LIBS_INIT})
