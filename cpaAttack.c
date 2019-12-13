@@ -48,7 +48,7 @@ typedef struct {
 
 void full_attack();
 
-int key_recovery(poly *sk_guess, unsigned char * sk);
+int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered);
 
 void sampleRandom(quadruplet_t * q, int16_t lower_bound, int16_t upper_bound);
 
@@ -111,6 +111,8 @@ void * testRun(void * arg){
 
 void full_attack(FILE * log) {
     int ret_val;
+    uint16_t n_not_recovered = 0;
+
 //    unsigned char       ct[CRYPTO_CIPHERTEXTBYTES], ss[CRYPTO_BYTES], ss1[CRYPTO_BYTES];
     unsigned char       pk[CRYPTO_PUBLICKEYBYTES], sk[CRYPTO_SECRETKEYBYTES];
 
@@ -129,7 +131,7 @@ void full_attack(FILE * log) {
 
 
 //    // Attack starting here
-    int queries = key_recovery(&sk_guess, sk);
+    int queries = key_recovery(&sk_guess, sk, &n_not_recovered);
 
     poly s;
     poly_frombytes(&s, sk);
@@ -162,15 +164,14 @@ void full_attack(FILE * log) {
 
     printf("%d correct - %d wrong not possible: %d\n", correct, NEWHOPE_N - correct, not_findable);
     pthread_mutex_lock(&lock);
-    fprintf(log,"%d;%d;%d;%d\n",correct,NEWHOPE_N - correct, not_findable, queries);
+    fprintf(log,"%d;%d;%d;%d;%d\n",correct,NEWHOPE_N - correct, n_not_recovered, not_findable, queries);
     pthread_mutex_unlock(&lock);
 }
 
 
-int key_recovery(poly *sk_guess, unsigned char * sk){
+int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered){
     int queries = 0;
     unsigned char attack_ct[CRYPTO_CIPHERTEXTBYTES];
-    uint16_t n_not_recovered = 0;
     // creating the guessed key for the hacker \nu_E = (1,0,0,...,0)
     keyHypothesis_t attacker_key_hypotesis;
     for(int i = 0; i < CRYPTO_BYTES; i++){
@@ -179,7 +180,6 @@ int key_recovery(poly *sk_guess, unsigned char * sk){
     attacker_key_hypotesis.key[0] = 1;
 
     for(int k = 0; k < SS_BITS; k++){
-//    for(int k = 237; k < 238; ++k){
         poly Uhat;
         zero(&Uhat);
         genfakeU(&Uhat, k);
@@ -187,7 +187,6 @@ int key_recovery(poly *sk_guess, unsigned char * sk){
 
         //target the coefficients in a quadruplet after each other
         for( int j =  0; j < 4; ++j){
-//        for( int j =  3; j < 4; ++j){
             bool not_found_yet = true;
             printf("Target index:%d quadruplet index: %d \n", k, j);
             //search for each index until we find it.
@@ -222,7 +221,7 @@ int key_recovery(poly *sk_guess, unsigned char * sk){
                 //check if we didn't manage to find something proper
                 if(tries == MAX_TRIES && tau[1] == -10){
                     printf("\nClould not find coefficient %d :(\n", k+(j * SS_BITS));
-                    n_not_recovered++;
+                    (*n_not_recovered)++;
                     not_found_yet = false;
                 } else {
                     // FindS
@@ -242,7 +241,7 @@ int key_recovery(poly *sk_guess, unsigned char * sk){
             }
         }
     }
-    printf("Finished hole attack took %d queries and could not find: %d coefficients\n", queries, n_not_recovered);
+    printf("Finished hole attack took %d queries and could not find: %d coefficients\n", queries, *n_not_recovered);
     return queries;
 }
 
