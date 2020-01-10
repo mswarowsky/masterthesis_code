@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <string.h>
 #include <pthread.h>
+#include <math.h>
 #include "NewHope/api.h"
 #include "NewHope/poly.h"
 #include "NewHope/cpapke.h"
@@ -16,15 +17,16 @@
 #define AT_DATA_ERROR      -3
 #define AT_CRYPTO_FAILURE  -4
 
-#define printf //
-
+//#define printf //
+#define DEV
 
 
 static void encode_c(unsigned char *r, const poly *b, const poly *v);
 
 // Multithreading stuff
 pthread_mutex_t lock;
-void * testRun(void * arg);
+
+void *testRun(void *arg);
 
 
 /***************************** Attack related *******************************/
@@ -33,6 +35,7 @@ void * testRun(void * arg);
 #define QUADRUPLET_SIZE 4
 #define TEST_RANGE 8
 #define S 1536  /** q = 8s + 1 **/
+#define NOT_FOUND 2000
 
 typedef struct {
     int16_t l[QUADRUPLET_SIZE];
@@ -63,19 +66,32 @@ uint8_t testAndFindTau(int8_t *tau, uint8_t *sign_changes, quadruplet_t *l, cons
                        const int16_t target_index, const poly *Uhat, keyHypothesis_t *k,
                        oracle_bitmap_t *oracle_results,  unsigned char * sk);
 
-bool mismatchOracle(const unsigned char * ciphertext, keyHypothesis_t * hypothesis, unsigned char *sk);
+bool mismatchOracle(const unsigned char *ciphertext, keyHypothesis_t *hypothesis, unsigned char *sk);
 
-int16_t find_s(const int8_t * tau);
+int16_t find_s(const int8_t *tau);
 
-void zero(poly * p);
+void zero(poly *p);
 
-void genfakeU(poly * U, int k);
+void genfakeU(poly *U, int k);
 
-void printPoly(poly * p);
+void printPoly(poly *p);
+
+int find_m_sum(int *m, unsigned char *sk, int16_t target_index);
+
+int qin_recover(poly *s_so_far, unsigned char *sk, uint16_t *n_not_recovered);
+
 /*****************************************************************************/
 
 
-int main(){
+int main() {
+#ifdef DEV
+    FILE *log = fopen("attack_DEV.log", "a+");
+    full_attack(log);
+    fclose(log);
+    return 0;
+#endif
+
+#ifndef DEV
     if (pthread_mutex_init(&lock, NULL) != 0)
     {
         printf("\n mutex init failed\n");
@@ -92,20 +108,27 @@ int main(){
     pthread_join(t2, NULL);
     pthread_join(t3, NULL);
     pthread_join(t4, NULL);
+#endif
 }
 
-void * testRun(void * arg){
-    FILE * log = fopen("attack.log", "a+");
-    if(log == NULL){
+void * testRun(void * arg) {
+    pthread_mutex_lock(&lock);
+    FILE *log = fopen("attack.log", "a+");
+    pthread_mutex_unlock(&lock);
+
+    if (log == NULL) {
         printf("File could not open: %s", strerror(errno));
         return NULL;
     }
 
-    for (int i = 0; i < 20; ++i) {
+    for (int i = 0; i < 250; ++i) {
         full_attack(log);
     }
 
+    pthread_mutex_lock(&lock);
     fclose(log);
+    pthread_mutex_unlock(&lock);
+
     return NULL;
 }
 
@@ -133,17 +156,23 @@ void full_attack(FILE * log) {
 //    // Attack starting here
     int queries = key_recovery(&sk_guess, sk, &n_not_recovered);
 
+
     poly s;
     poly_frombytes(&s, sk);
     poly_invntt(&s);
-    
+
+    //recover rest
+
+
+
+    // evaluation
     printf("guess :[");
-    for(int i = 0; i < NEWHOPE_N; i++){
+    for (int i = 0; i < NEWHOPE_N; i++) {
         printf("%d, ", sk_guess.coeffs[i]);
     }
     printf("]\nreal s:[");
     for (int j = 0; j < NEWHOPE_N; j++) {
-        printf("%d, ",s.coeffs[j] % NEWHOPE_Q);
+        printf("%d, ", s.coeffs[j] % NEWHOPE_Q);
     }
     printf("]\n");
 
@@ -154,7 +183,7 @@ void full_attack(FILE * log) {
         if(real_coefficient > 4 && real_coefficient < 12283) {
             not_findable++;
         } else {
-            if(sk_guess.coeffs[j] !=  real_coefficient){
+            if (sk_guess.coeffs[j] != real_coefficient) {
                 printf("wrong at %d real: %d vs. %d\n", j, real_coefficient, sk_guess.coeffs[j]);
             } else {
                 correct++;
@@ -164,10 +193,10 @@ void full_attack(FILE * log) {
 
     printf("%d correct - %d wrong not possible: %d\n", correct, NEWHOPE_N - correct, not_findable);
     pthread_mutex_lock(&lock);
-    fprintf(log,"%d;%d;%d;%d;%d\n",correct,NEWHOPE_N - correct, n_not_recovered, not_findable, queries);
+    fprintf(log, "%d; %d; %d; %d; %d\n", correct, NEWHOPE_N - correct, n_not_recovered, not_findable, queries);
+    fflush(log);
     pthread_mutex_unlock(&lock);
 }
-
 
 int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered){
     int queries = 0;
@@ -219,10 +248,13 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
                 }
 
                 //check if we didn't manage to find something proper
-                if(tries == MAX_TRIES && tau[1] == -10){
-                    printf("\nClould not find coefficient %d :(\n", k+(j * SS_BITS));
+                if (tries == MAX_TRIES && tau[1] == -10) {
+                    printf("\nClould not find coefficient %d :(\n", k + (j * SS_BITS));
                     (*n_not_recovered)++;
                     not_found_yet = false;
+                    //TODO find out sign for qin optimization
+                    sk_guess->coeffs[k + (j * SS_BITS)] = NOT_FOUND;
+
                 } else {
                     // FindS
                     int16_t guess_for_s = find_s(tau);
@@ -233,7 +265,7 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
 //                    test_hypothesis(guess_for_s, k, j);
 
                     //saving the recovered coefficient
-                    sk_guess->coeffs[k + (j * SS_BITS)] = ((guess_for_s + NEWHOPE_Q) % NEWHOPE_Q );
+                    sk_guess->coeffs[k + (j * SS_BITS)] = ((guess_for_s + NEWHOPE_Q) % NEWHOPE_Q);
                     printf("s[%d] = %d", k + (j * SS_BITS), guess_for_s);
                     not_found_yet = false;
                     printf("\n");
@@ -241,8 +273,80 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
             }
         }
     }
-    printf("Finished hole attack took %d queries and could not find: %d coefficients\n", queries, *n_not_recovered);
+
+    //no applying the optimization from Qin et. al.
+    int qin_queries = qin_recover(sk_guess, sk, n_not_recovered);
+
+    printf("Finished hole attack took %d queries qin took %d queries and could not find: %d coefficients\n", queries,
+           qin_queries, *n_not_recovered);
     return queries;
+}
+
+/**
+ * Recover more coefficients with the method of Qin et al.
+ * @param s_so_far          the so fare recovered secret key will also be used to write the new coefficients in
+ * @param sk                real secrete key
+ * @param n_not_recovered   the number of not yet recovered coefficients, will also be updated
+ * @return                  Number of queries used
+ */
+int qin_recover(poly *s_so_far, unsigned char *sk, uint16_t *n_not_recovered) {
+    int queries = 0;
+    for (int i = 0; i < SS_BITS; ++i) {
+
+        for (int j = 0; j < 4; ++j) {
+            // TEST if already recovered
+            if (s_so_far->coeffs[i + 256 * j] != NOT_FOUND) {
+                break;
+            }
+            int m;
+            queries += find_m_sum(&m, sk, (i + 256 * j));
+
+            printf("The sum m is:%d\n", m);
+
+            // Subtract the other three coefficients from the sum
+            for (int k = 0; k < 4; ++k) {
+                if (j != k) {
+                    m -= abs(s_so_far->coeffs[i + 256 * k] - NEWHOPE_Q);
+                }
+            }
+
+            ///assign the sign
+            //TODO no sign form the previous run
+            s_so_far->coeffs[i + 256 * j] = m;
+            (*n_not_recovered)--;
+        }
+    }
+
+    return queries;
+}
+
+int find_m_sum(int *m, unsigned char *sk, int16_t target_index) {
+    unsigned char attack_ct[CRYPTO_CIPHERTEXTBYTES];
+    for (int h = 0; h < NEWHOPE_Q - 1; ++h) {
+        //setting U with U[512] = h rest 0
+        poly Uhat;
+        zero(&Uhat);
+        Uhat.coeffs[512] = h;
+        poly_ntt(&Uhat);
+
+        //creating c with v[target_i] = 1 rest 0
+        keyHypothesis_t k;
+        memset(k.key, 0, 32);
+        k.key[target_index / 8] = (1 << (target_index % 8));
+        poly k_poly;
+        poly_frommsg(&k_poly, k.key);
+
+        //assemble the full ciphertext
+        encode_c(attack_ct, &Uhat, &k_poly);
+
+        // if the target index key first time changes from 1 to 0 then we have m
+        if (mismatchOracle(attack_ct, &k, sk)) {
+            *m = (int) (((NEWHOPE_Q + 2.0) / h) + 0.5);
+            break;
+        }
+    }
+
+    return 0;
 }
 
 /**
