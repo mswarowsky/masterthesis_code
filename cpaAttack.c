@@ -80,6 +80,8 @@ int find_m_sum(int *m, unsigned char *sk, int16_t target_index);
 
 int qin_recover(poly *s_so_far, unsigned char *sk, uint16_t *n_not_recovered);
 
+uint16_t coefficientAbs(uint16_t coefficient);
+
 /*****************************************************************************/
 
 
@@ -182,6 +184,7 @@ void full_attack(FILE * log) {
         uint16_t real_coefficient = s.coeffs[j] % NEWHOPE_Q;
         if(real_coefficient > 4 && real_coefficient < 12283) {
             not_findable++;
+            printf("Not findable at %d with %d %d\n", j, real_coefficient, s.coeffs[j]);
         } else {
             if (sk_guess.coeffs[j] != real_coefficient) {
                 printf("wrong at %d real: %d vs. %d\n", j, real_coefficient, sk_guess.coeffs[j]);
@@ -291,8 +294,8 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
  */
 int qin_recover(poly *s_so_far, unsigned char *sk, uint16_t *n_not_recovered) {
     int queries = 0;
-    for (int i = 0; i < SS_BITS; ++i) {
-
+//    for (int i = 0; i < SS_BITS; ++i) {
+    for (int i = 2; i < 3; ++i) {
         for (int j = 0; j < 4; ++j) {
             // TEST if already recovered
             if (s_so_far->coeffs[i + 256 * j] != NOT_FOUND) {
@@ -306,7 +309,7 @@ int qin_recover(poly *s_so_far, unsigned char *sk, uint16_t *n_not_recovered) {
             // Subtract the other three coefficients from the sum
             for (int k = 0; k < 4; ++k) {
                 if (j != k) {
-                    m -= abs(s_so_far->coeffs[i + 256 * k] - NEWHOPE_Q);
+                    m -= coefficientAbs(s_so_far->coeffs[i + 256 * k]);
                 }
             }
 
@@ -534,7 +537,7 @@ bool mismatchOracle(const unsigned char * ciphertext, keyHypothesis_t * hypothes
     uint16_t errors = 0;
     for (int i = 0; i < CRYPTO_BYTES; ++i) {
         if (hypothesis->key[i] != ss[i]) {
-            if(i != 0) printf("Something strange, error outside of index 0 - %d\n", i);
+//            if(i != 0) printf("Something strange, error outside of index 0 - %d\n", i); // only relevant for the Bauer method
             errors++;
         }
     }
@@ -600,10 +603,22 @@ void printPoly(poly * p){
 *              - const poly *b:    pointer to the input polynomial b
 *              - const poly *v:    pointer to the input polynomial v
 **************************************************/
-static void encode_c(unsigned char *r, const poly *b, const poly *v)
-{
-    poly_tobytes(r,b);
-    poly_compress(r+NEWHOPE_POLYBYTES,v);
+static void encode_c(unsigned char *r, const poly *b, const poly *v) {
+    poly_tobytes(r, b);
+    poly_compress(r + NEWHOPE_POLYBYTES, v);
+}
+
+/***
+ * Extracts the secrete coefficents from the secrete key and returns their abs value
+ * @param coefficient
+ * @return
+ */
+uint16_t coefficientAbs(uint16_t coefficient) {
+    uint16_t v = coefficient % NEWHOPE_Q;
+    if (v > (NEWHOPE_Q / 2)) {
+        v = (v - NEWHOPE_Q) * -1;
+    }
+    return v;
 }
 
 
