@@ -57,16 +57,16 @@ void sampleRandom(quadruplet_t * q, int16_t lower_bound, int16_t upper_bound);
 
 void init(oracle_bitmap_t * b);
 
-void create_attack_ct(const poly *Uhat, quadruplet_t *l, unsigned char * attack_ct);
+void create_attack_ct(const poly *Uhat, quadruplet_t *l, unsigned char *attack_ct);
 
-bool checkAtBorders(quadruplet_t * l, int quadruplet_index, int16_t target_index, const poly * Uhat,
-                    keyHypothesis_t * k,  unsigned char *sk);
+bool checkAtBorders(quadruplet_t *l, int quadruplet_index, int16_t target_index, const poly *Uhat,
+                    keyHypothesis_t *k, unsigned char *sk);
 
 uint8_t testAndFindTau(int8_t *tau, uint8_t *sign_changes, quadruplet_t *l, const int quadruplet_index,
                        const int16_t target_index, const poly *Uhat, keyHypothesis_t *k,
-                       oracle_bitmap_t *oracle_results,  unsigned char * sk);
+                       oracle_bitmap_t *oracle_results, unsigned char *sk);
 
-bool mismatchOracle(const unsigned char *ciphertext, keyHypothesis_t *hypothesis, unsigned char *sk);
+bool mismatchOracle(const unsigned char *ciphertext, keyHypothesis_t *hypothesis, unsigned char *sk, int target_index);
 
 int16_t find_s(const int8_t *tau);
 
@@ -182,16 +182,17 @@ void full_attack(FILE * log) {
     int correct = 0;
     for (int j = 0; j < NEWHOPE_N; j++) {
         uint16_t real_coefficient = s.coeffs[j] % NEWHOPE_Q;
-        if(real_coefficient > 4 && real_coefficient < 12283) {
+        if (real_coefficient > 4 && real_coefficient < 12283) {
             not_findable++;
-            printf("Not findable at %d with %d %d\n", j, real_coefficient, s.coeffs[j]);
-        } else {
-            if (sk_guess.coeffs[j] != real_coefficient) {
-                printf("wrong at %d real: %d vs. %d\n", j, real_coefficient, sk_guess.coeffs[j]);
-            } else {
-                correct++;
-            }
+//            printf("Not findable at %d with %d %d \n", j, real_coefficient, s.coeffs[j]);
         }
+
+        if (sk_guess.coeffs[j] != real_coefficient) {
+            printf("wrong at %d real: %d vs. %d\n", j, real_coefficient, sk_guess.coeffs[j]);
+        } else {
+            correct++;
+        }
+
     }
 
     printf("%d correct - %d wrong not possible: %d\n", correct, NEWHOPE_N - correct, not_findable);
@@ -295,7 +296,7 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
 int qin_recover(poly *s_so_far, unsigned char *sk, uint16_t *n_not_recovered) {
     int queries = 0;
 //    for (int i = 0; i < SS_BITS; ++i) {
-    for (int i = 2; i < 3; ++i) {
+    for (int i = 0; i < SS_BITS; ++i) {
         for (int j = 0; j < 4; ++j) {
             // TEST if already recovered
             if (s_so_far->coeffs[i + 256 * j] != NOT_FOUND) {
@@ -304,7 +305,7 @@ int qin_recover(poly *s_so_far, unsigned char *sk, uint16_t *n_not_recovered) {
             int m;
             queries += find_m_sum(&m, sk, (i + 256 * j));
 
-            printf("The sum m is:%d\n", m);
+            printf("The index %d sum m is:%d ", (i + 256 * j), m);
 
             // Subtract the other three coefficients from the sum
             for (int k = 0; k < 4; ++k) {
@@ -312,6 +313,8 @@ int qin_recover(poly *s_so_far, unsigned char *sk, uint16_t *n_not_recovered) {
                     m -= coefficientAbs(s_so_far->coeffs[i + 256 * k]);
                 }
             }
+
+            printf(" s[%d]: %d\n", (i + 256 * j), m);
 
             ///assign the sign
             //TODO no sign form the previous run
@@ -325,25 +328,28 @@ int qin_recover(poly *s_so_far, unsigned char *sk, uint16_t *n_not_recovered) {
 
 int find_m_sum(int *m, unsigned char *sk, int16_t target_index) {
     unsigned char attack_ct[CRYPTO_CIPHERTEXTBYTES];
+
+    //creating c with v[target_i] = 1 rest 0
+    keyHypothesis_t k;
+    memset(k.key, 0, 32);
+    k.key[target_index / 8] = (1 << (target_index % 8));
+    poly k_poly;
+    poly_frommsg(&k_poly, k.key);
+
     for (int h = 0; h < NEWHOPE_Q - 1; ++h) {
         //setting U with U[512] = h rest 0
         poly Uhat;
         zero(&Uhat);
         Uhat.coeffs[512] = h;
         poly_ntt(&Uhat);
-
-        //creating c with v[target_i] = 1 rest 0
-        keyHypothesis_t k;
-        memset(k.key, 0, 32);
-        k.key[target_index / 8] = (1 << (target_index % 8));
-        poly k_poly;
-        poly_frommsg(&k_poly, k.key);
+        poly_invntt(&Uhat);
+        poly_ntt(&Uhat);
 
         //assemble the full ciphertext
         encode_c(attack_ct, &Uhat, &k_poly);
 
         // if the target index key first time changes from 1 to 0 then we have m
-        if (mismatchOracle(attack_ct, &k, sk)) {
+        if (mismatchOracle(attack_ct, &k, sk, (target_index / 8))) {
             *m = (int) (((NEWHOPE_Q + 2.0) / h) + 0.5);
             break;
         }
@@ -373,10 +379,10 @@ bool checkAtBorders(quadruplet_t * l, const int quadruplet_index, const int16_t 
     backup = l->l[quadruplet_index];
     l->l[quadruplet_index] = -4;
     create_attack_ct(Uhat, l, attack_ct);
-    errorLowerBound = mismatchOracle(attack_ct, k, sk);
+    errorLowerBound = mismatchOracle(attack_ct, k, sk, -1);
     l->l[quadruplet_index] = 3;
     create_attack_ct(Uhat, l, attack_ct);
-    errorUpperBound = mismatchOracle(attack_ct, k, sk);
+    errorUpperBound = mismatchOracle(attack_ct, k, sk, -1);
 
     //restoring the quadruplet
     l->l[quadruplet_index] = backup;
@@ -407,7 +413,7 @@ uint8_t testAndFindTau(int8_t *tau, uint8_t *sign_changes, quadruplet_t *l, cons
     for (int i = 1; i < TEST_RANGE - 1; ++i) {
         l->l[quadruplet_index] = l_test_value;
         create_attack_ct(Uhat, l, attack_ct);
-        oracle_results->b[i] = mismatchOracle(attack_ct, k, sk);
+        oracle_results->b[i] = mismatchOracle(attack_ct, k, sk, -1);
 //        printf("\n");
         oracle_results->b[i] == true ? printf("+,") : printf("-,");
         queries++;
@@ -520,9 +526,10 @@ void create_attack_ct(const poly * uhat, quadruplet_t *l, unsigned char * attack
  * This takes a chiphertext and checks if this this ciphertext creates the same key than the given hypothesis
  * @param ciphertext
  * @param hypothesis
+ * @param target_index the index in the secret key to check, if < 0 check all
  * @return false(0) if the keys are the same otherwise true(1)
  */
-bool mismatchOracle(const unsigned char * ciphertext, keyHypothesis_t * hypothesis, unsigned char * sk){
+bool mismatchOracle(const unsigned char *ciphertext, keyHypothesis_t *hypothesis, unsigned char *sk, int target_index) {
     unsigned char ss[CRYPTO_BYTES];
     //first get the shared key from Alice
     cpapke_dec(ss, ciphertext, sk);
@@ -535,13 +542,21 @@ bool mismatchOracle(const unsigned char * ciphertext, keyHypothesis_t * hypothes
 //    printf("\n");
     //now compare the hypothesis with the key from alice
     uint16_t errors = 0;
-    for (int i = 0; i < CRYPTO_BYTES; ++i) {
-        if (hypothesis->key[i] != ss[i]) {
+    if (target_index < 0) {
+        for (int i = 0; i < CRYPTO_BYTES; ++i) {
+            if (hypothesis->key[i] != ss[i]) {
 //            if(i != 0) printf("Something strange, error outside of index 0 - %d\n", i); // only relevant for the Bauer method
+                errors++;
+            }
+        }
+    } else if (target_index < 32) {
+        if (hypothesis->key[target_index] != ss[target_index]) {
             errors++;
         }
+    } else {
+        printf("Wrong target index %d", target_index);
+        exit(0);
     }
-//    exit(1);
     return errors == 0 ? false : true;
 }
 
