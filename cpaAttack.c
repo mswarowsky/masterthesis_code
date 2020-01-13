@@ -296,31 +296,28 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
 int qin_recover(poly *s_so_far, unsigned char *sk, uint16_t *n_not_recovered) {
     int queries = 0;
 //    for (int i = 0; i < SS_BITS; ++i) {
-    for (int i = 0; i < SS_BITS; ++i) {
-        for (int j = 0; j < 4; ++j) {
-            // TEST if already recovered
-            if (s_so_far->coeffs[i + 256 * j] != NOT_FOUND) {
-                break;
-            }
-            int m;
-            queries += find_m_sum(&m, sk, (i + 256 * j));
-
-            printf("The index %d sum m is:%d ", (i + 256 * j), m);
-
-            // Subtract the other three coefficients from the sum
-            for (int k = 0; k < 4; ++k) {
-                if (j != k) {
-                    m -= coefficientAbs(s_so_far->coeffs[i + 256 * k]);
-                }
-            }
-
-            printf(" s[%d]: %d\n", (i + 256 * j), m);
-
-            ///assign the sign
-            //TODO no sign form the previous run
-            s_so_far->coeffs[i + 256 * j] = m;
-            (*n_not_recovered)--;
+    for (int i = 0; i < SS_BITS * 4; ++i) {
+        // TEST if already recovered
+        if (s_so_far->coeffs[i] != NOT_FOUND) {
+            continue;
         }
+        int m;
+        queries += find_m_sum(&m, sk, (i / SS_BITS));
+
+        printf("The index %d sum m is:%d ", (i), m);
+
+        // Subtract the other three coefficients from the sum
+        for (int k = 1; k < 4; ++k) {
+            m -= coefficientAbs(s_so_far->coeffs[(i + 256 * k) % NEWHOPE_N]);
+        }
+
+        printf(" s[%d]: %d\n", (i), m);
+
+        ///assign the sign
+        //TODO no sign form the previous run
+        s_so_far->coeffs[i] = m;
+        (*n_not_recovered)--;
+
     }
 
     return queries;
