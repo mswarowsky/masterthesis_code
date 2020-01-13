@@ -295,14 +295,14 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
  */
 int qin_recover(poly *s_so_far, unsigned char *sk, uint16_t *n_not_recovered) {
     int queries = 0;
-//    for (int i = 0; i < SS_BITS; ++i) {
+//    for (int i = 0; i < SS_BITS * 4; ++i) {
     for (int i = 0; i < SS_BITS * 4; ++i) {
         // TEST if already recovered
         if (s_so_far->coeffs[i] != NOT_FOUND) {
             continue;
         }
         int m;
-        queries += find_m_sum(&m, sk, (i / SS_BITS));
+        queries += find_m_sum(&m, sk, (i % SS_BITS));
 
         printf("The index %d sum m is:%d ", (i), m);
 
