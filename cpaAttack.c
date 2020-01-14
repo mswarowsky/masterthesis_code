@@ -188,7 +188,7 @@ void full_attack(FILE * log) {
         }
 
         if (sk_guess.coeffs[j] != real_coefficient) {
-            printf("wrong at %d real: %d vs. %d\n", j, real_coefficient, sk_guess.coeffs[j]);
+            printf("wrong at %d real: %d(%d) vs. %d\n", j, real_coefficient, s.coeffs[j], sk_guess.coeffs[j]);
         } else {
             correct++;
         }
@@ -296,7 +296,7 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
 int qin_recover(poly *s_so_far, unsigned char *sk, uint16_t *n_not_recovered) {
     int queries = 0;
 //    for (int i = 0; i < SS_BITS * 4; ++i) {
-    for (int i = 0; i < SS_BITS * 4; ++i) {
+    for (int i = 169; i < 170; ++i) {
         // TEST if already recovered
         if (s_so_far->coeffs[i] != NOT_FOUND) {
             continue;
@@ -317,7 +317,6 @@ int qin_recover(poly *s_so_far, unsigned char *sk, uint16_t *n_not_recovered) {
         //TODO no sign form the previous run
         s_so_far->coeffs[i] = m;
         (*n_not_recovered)--;
-
     }
 
     return queries;
@@ -325,6 +324,7 @@ int qin_recover(poly *s_so_far, unsigned char *sk, uint16_t *n_not_recovered) {
 
 int find_m_sum(int *m, unsigned char *sk, int16_t target_index) {
     unsigned char attack_ct[CRYPTO_CIPHERTEXTBYTES];
+    int queries = 0;
 
     //creating c with v[target_i] = 1 rest 0
     keyHypothesis_t k;
@@ -333,7 +333,8 @@ int find_m_sum(int *m, unsigned char *sk, int16_t target_index) {
     poly k_poly;
     poly_frommsg(&k_poly, k.key);
 
-    for (int h = 0; h < NEWHOPE_Q - 1; ++h) {
+
+    for (int h = 1117; h < NEWHOPE_Q - 1; ++h) {
         //setting U with U[512] = h rest 0
         poly Uhat;
         zero(&Uhat);
@@ -346,13 +347,14 @@ int find_m_sum(int *m, unsigned char *sk, int16_t target_index) {
         encode_c(attack_ct, &Uhat, &k_poly);
 
         // if the target index key first time changes from 1 to 0 then we have m
+        queries++;
         if (mismatchOracle(attack_ct, &k, sk, (target_index / 8))) {
             *m = (int) (((NEWHOPE_Q + 2.0) / h) + 0.5);
             break;
         }
     }
 
-    return 0;
+    return queries;
 }
 
 /**
