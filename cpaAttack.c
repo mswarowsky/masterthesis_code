@@ -171,24 +171,14 @@ void full_attack(FILE * log) {
     poly_frombytes(&s, sk);
     poly_invntt(&s);
 
-    //recover rest
-
-
-
-    ///DEBUG
-    printf("\n%d, ", s.coeffs[169] % NEWHOPE_Q);
-    printf("%d, ", s.coeffs[425] % NEWHOPE_Q);
-    printf("%d, ", s.coeffs[681] % NEWHOPE_Q);
-    printf("%d, \n", s.coeffs[937] % NEWHOPE_Q);
-
     // evaluation
     printf("guess :[");
     for (int i = 0; i < NEWHOPE_N; i++) {
-        printf("%d, ", sk_guess.coeffs[i]);
+        printf("%d, ", get_secret_coeffs_value_around_zero(sk_guess.coeffs[i]));
     }
     printf("]\nreal s:[");
     for (int j = 0; j < NEWHOPE_N; j++) {
-        printf("%d, ", s.coeffs[j] % NEWHOPE_Q);
+        printf("%d, ", get_secret_coeffs_value_around_zero(s.coeffs[j]));
     }
     printf("]\n");
 
@@ -313,12 +303,21 @@ int16_t get_secret_coeffs_value_around_zero(uint16_t value) {
     return (int16_t) final_value;
 }
 
+bool check_other_coefficients_where_also_not_found(poly * s, int k){
+    for (int j = k % SS_BITS; j < NEWHOPE_N; j += 256) {
+        if((j != k) && (s->coeffs[j] == NOT_FOUND)){
+            printf("The to connected indices %d %d are not bauer recoverable:(\n", k , j);
+            return true;
+        }
+    }
+    return false;
+}
+
 int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
     int queries = 0;
     uint8_t errors = 0; //bitmap
     unsigned char attack_ct[CRYPTO_CIPHERTEXTBYTES];
     keyHypothesis_t attacker_key_hypotesis;
-    quadruplet_t l;
 
 
     //creating key guess
@@ -327,12 +326,21 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
     }
     attacker_key_hypotesis.key[0] = 1;
 
-//    for (int i = 0; i < SS_BITS * 4; ++i) {
-    for (int i = 321; i < 330; ++i) {
+    for (int i = 0; i < SS_BITS * 4; ++i) {
+//    for (int i = 682; i < 990; ++i) {
         if (s_so_far->coeffs[i] != NOT_FOUND) {
             continue;
         }
+
+        //check if we have the other three coefficients
+        if(check_other_coefficients_where_also_not_found(s_so_far, i)){
+            continue;
+        }
+
+
+
         poly Uhat;
+        quadruplet_t l;
         genfakeU(&Uhat, i % SS_BITS, S / 2);
 
         printf("----------------- Try to get index %d -------------- \n", i);
@@ -340,28 +348,12 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
         //First test for -7, 5 and 6 so set v-8 = 0
         creat_v_sum(&l, s_so_far, -1, i);
 
-
         for (int16_t l_0 = -4; l_0 < 4; l_0++) {
             l.l[i / SS_BITS] = l_0;
             create_attack_ct(&Uhat, &l, attack_ct);
             errors |= mismatchOracle(attack_ct, &attacker_key_hypotesis, sk, -1) << (l_0 + 4);
+            queries++;
         }
-
-        ///DEBUG
-        poly s;
-        poly_frombytes(&s, sk);
-        poly_invntt(&s);
-        printf("s: (%d ,%d,%d, %d)\n", get_secret_coeffs_value_around_zero(s.coeffs[i - 256]),
-               get_secret_coeffs_value_around_zero(s.coeffs[i]),
-               get_secret_coeffs_value_around_zero(s.coeffs[i + 256]),
-               get_secret_coeffs_value_around_zero(s.coeffs[i + 512]));
-
-        float l_1 = fabs(l.l[1] - (get_secret_coeffs_value_around_zero(s.coeffs[i - 256]) / 2.0f));
-        float l_2 = fabs(l.l[2] - (get_secret_coeffs_value_around_zero(s.coeffs[i + 256]) / 2.0f));
-        float l_3 = fabs(l.l[3] - (get_secret_coeffs_value_around_zero(s.coeffs[i + 512]) / 2.0f));
-        int v = (int) (l_1 + l_2 + l_3);
-        printf("|l_j - s_j/2|: %f , %f, %f\n", l_1, l_2, l_3);
-        printf("v-8: %d\n", (v - 8));
 
         //Plot info
         printf("[");
@@ -384,15 +376,15 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
         } else if (errors == 0b00111110) {
             s_so_far->coeffs[i] = 12295;
             printf("Yeah 6 !!!\n");
-        } else if (errors == 0b01111110) {
+        } else if (errors == 0b01111111) {
             s_so_far->coeffs[i] = 12296;
             printf("Yeah 7 !!!\n");
         } else {
             printf("Dam it, more work!!! -8 or 8\n");
+            //TODO more tests for -8 ,8
         }
 
-        //TODO more tests for -8 ,8
-
+        (*not_recovered)--;
     }
 
     return queries;
@@ -408,32 +400,51 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
  */
 void creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index) {
     ///DEBUG to test set dem manually
-    l->l[0] = -3;
+    l->l[0] = 0;
     l->l[1] = 0;
-    l->l[2] = 2;
-    l->l[3] = 1;
+    l->l[2] = 0;
+    l->l[3] = 0;
 //    sampleRandom(l, -4, 3);
+
+
+    float l_j[4] = {0,0,0,0};
+    int16_t s_c[4] = {0,0,0,0};
+
+
 
 
     int main_index = target_index % SS_BITS;
     int sub_index = target_index / SS_BITS;
     float sub_sum = (float) target_sum + 8;
 
-//    for (int i = 0; i < 4; ++i) {
-//        if (i == sub_index) continue;        //we only what to use the other 3 ones
-//        float s_j = (get_secret_coeffs_value_around_zero(s->coeffs[(main_index + i * SS_BITS)]) / 2.0f);
-//
-//        if ((sub_sum > 0) && (s_j >= 0)) { // coeff is positive
-//            l->l[i] = (int16_t) (-1 * MIN(MAX(sub_sum - s_j, 0), 3));
-//            sub_sum += l->l[i] - s_j;
-//        } else if (sub_sum > 0) { //coeff is negative
-//            l->l[i] = (int16_t) (MIN(MAX(sub_sum + s_j, 0), 3));
-//            sub_sum -= (l->l[i] - s_j);
-//        } else { //just keep |l_j - S_j/2| == 0
-//            l->l[i] = (int16_t) -1 * s_j;
-//        }
-//    }
+    for (int i = 0; i < 4; ++i) {
+        //DEBUG
+        s_c[i] = get_secret_coeffs_value_around_zero(s->coeffs[main_index + i * SS_BITS]);
+        if (i == sub_index) continue;        //we only what to use the other 3 ones
+
+        ///DEBUG
+        l_j[i] = fabs(l->l[0] - (get_secret_coeffs_value_around_zero(s->coeffs[main_index + i * SS_BITS]) / 2.0f));
+
+
+        float s_j = (get_secret_coeffs_value_around_zero(s->coeffs[(main_index + i * SS_BITS)]) / 2.0f);
+
+        if ((sub_sum > 0) && (s_j >= 0)) { // coeff is positive
+            l->l[i] = (int16_t) (-1 * MIN(MAX(sub_sum - s_j, 0) + 0.5, 3));
+            sub_sum += l->l[i] - s_j;
+        } else if (sub_sum > 0) { //coeff is negative
+            l->l[i] = (int16_t) (MIN(MAX(sub_sum + s_j, 0) + 0.5 , 3));
+            sub_sum -= (l->l[i] - s_j);
+        } else { //just keep |l_j - S_j/2| == 0
+            l->l[i] = (int16_t) s_j;
+        }
+    }
     printf("l: [ %d, %d , %d, %d ]\n", l->l[0], l->l[1], l->l[2], l->l[3]);
+
+    ///DEBUG
+    printf("s: (%d ,%d,%d, %d)\n", s_c[0], s_c[1], s_c[2], s_c[3]);
+    int v = (int) (l_j[0] + l_j[1] + l_j[2] +l_j[3]);
+    printf("|l_j - s_j/2|: %f , %f, %f, %f\n", l_j[0] , l_j[1] , l_j[2] ,l_j[3]);
+    printf("v-8: %d\n", (v - 8));
 }
 
 /**
