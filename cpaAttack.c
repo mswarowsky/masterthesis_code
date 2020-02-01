@@ -333,7 +333,7 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
             continue;
         }
         poly Uhat;
-        genfakeU(&Uhat, i, S / 2);
+        genfakeU(&Uhat, i % SS_BITS, S / 2);
 
         printf("----------------- Try to get index %d -------------- \n", i);
 
@@ -408,10 +408,10 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
  */
 void creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index) {
     ///DEBUG to test set dem manually
-    l->l[0] = 0;
+    l->l[0] = -3;
     l->l[1] = 0;
-    l->l[2] = 0;
-    l->l[3] = 0;
+    l->l[2] = 2;
+    l->l[3] = 1;
 //    sampleRandom(l, -4, 3);
 
 
@@ -419,20 +419,20 @@ void creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index)
     int sub_index = target_index / SS_BITS;
     float sub_sum = (float) target_sum + 8;
 
-    for (int i = 0; i < 4; ++i) {
-        if (i == sub_index) continue;        //we only what to use the other 3 ones
-        float s_j = (get_secret_coeffs_value_around_zero(s->coeffs[main_index + i * SS_BITS]) / 2.0f);
-
-        if ((sub_sum > 0) && (s_j >= 0)) { // coeff is positive
-            l->l[i] = (int16_t) (-1 * MIN(MAX(sub_sum - s_j, 0), 3));
-            sub_sum += l->l[i] - s_j;
-        } else if (sub_sum > 0) { //coeff is negative
-            l->l[i] = (int16_t) (MIN(MAX(sub_sum + s_j, 0), 3));
-            sub_sum -= (l->l[i] - s_j);
-        } else { //just keep |l_j - S_j/2| == 0
-            l->l[i] = (int16_t) -1 * s_j;
-        }
-    }
+//    for (int i = 0; i < 4; ++i) {
+//        if (i == sub_index) continue;        //we only what to use the other 3 ones
+//        float s_j = (get_secret_coeffs_value_around_zero(s->coeffs[(main_index + i * SS_BITS)]) / 2.0f);
+//
+//        if ((sub_sum > 0) && (s_j >= 0)) { // coeff is positive
+//            l->l[i] = (int16_t) (-1 * MIN(MAX(sub_sum - s_j, 0), 3));
+//            sub_sum += l->l[i] - s_j;
+//        } else if (sub_sum > 0) { //coeff is negative
+//            l->l[i] = (int16_t) (MIN(MAX(sub_sum + s_j, 0), 3));
+//            sub_sum -= (l->l[i] - s_j);
+//        } else { //just keep |l_j - S_j/2| == 0
+//            l->l[i] = (int16_t) -1 * s_j;
+//        }
+//    }
     printf("l: [ %d, %d , %d, %d ]\n", l->l[0], l->l[1], l->l[2], l->l[3]);
 }
 
