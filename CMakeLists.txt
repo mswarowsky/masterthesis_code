@@ -25,5 +25,5 @@ target_link_libraries(cpaTest1024 cpakem1024)
 
 # Attack prgoramms
 add_executable(cpaAttack cpaAttack.c)
-target_link_libraries(cpaAttack cpakem1024)
+target_link_libraries(cpaAttack cpakem1024 m)
 target_link_libraries(cpaAttack ${CMAKE_THREAD_LIBS_INIT})

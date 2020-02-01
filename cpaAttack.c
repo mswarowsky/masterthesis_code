@@ -36,6 +36,8 @@ void *testRun(void *arg);
 #define TEST_RANGE 8
 #define S 1536  /** q = 8s + 1 **/
 #define NOT_FOUND 2000
+#define MAX(x, y) (((x) > (y)) ? (x) : (y))
+#define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
 typedef struct {
     int16_t l[QUADRUPLET_SIZE];
@@ -43,7 +45,7 @@ typedef struct {
 
 typedef struct {
     bool b[TEST_RANGE];
-}oracle_bitmap_t;
+} oracle_bitmap_t;
 
 typedef struct {
     unsigned char key[CRYPTO_BYTES];
@@ -72,7 +74,7 @@ int16_t find_s(const int8_t *tau);
 
 void zero(poly *p);
 
-void genfakeU(poly *U, int k);
+void genfakeU(poly *U, int k, uint16_t value);
 
 void printPoly(poly *p);
 
@@ -80,7 +82,13 @@ int find_m_sum(int *m, unsigned char *sk, int16_t target_index);
 
 int qin_recover(poly *s_so_far, unsigned char *sk, uint16_t *n_not_recovered);
 
+int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered);
+
+void creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index);
+
 uint16_t coefficientAbs(uint16_t coefficient);
+
+int16_t get_secret_coeffs_value_around_zero(uint16_t value);
 
 /*****************************************************************************/
 
@@ -167,6 +175,12 @@ void full_attack(FILE * log) {
 
 
 
+    ///DEBUG
+    printf("\n%d, ", s.coeffs[169] % NEWHOPE_Q);
+    printf("%d, ", s.coeffs[425] % NEWHOPE_Q);
+    printf("%d, ", s.coeffs[681] % NEWHOPE_Q);
+    printf("%d, \n", s.coeffs[937] % NEWHOPE_Q);
+
     // evaluation
     printf("guess :[");
     for (int i = 0; i < NEWHOPE_N; i++) {
@@ -187,19 +201,19 @@ void full_attack(FILE * log) {
 //            printf("Not findable at %d with %d %d \n", j, real_coefficient, s.coeffs[j]);
         }
 
-        if (sk_guess.coeffs[j] != real_coefficient) {
+        if ((sk_guess.coeffs[j] % NEWHOPE_Q) != real_coefficient) {
             printf("wrong at %d real: %d(%d) vs. %d\n", j, real_coefficient, s.coeffs[j], sk_guess.coeffs[j]);
         } else {
             correct++;
         }
 
     }
-
-    printf("%d correct - %d wrong not possible: %d\n", correct, NEWHOPE_N - correct, not_findable);
-    pthread_mutex_lock(&lock);
-    fprintf(log, "%d; %d; %d; %d; %d\n", correct, NEWHOPE_N - correct, n_not_recovered, not_findable, queries);
-    fflush(log);
-    pthread_mutex_unlock(&lock);
+//
+//    printf("%d correct - %d wrong not possible: %d\n", correct, NEWHOPE_N - correct, not_findable);
+//    pthread_mutex_lock(&lock);
+//    fprintf(log, "%d; %d; %d; %d; %d\n", correct, NEWHOPE_N - correct, n_not_recovered, not_findable, queries);
+//    fflush(log);
+//    pthread_mutex_unlock(&lock);
 }
 
 int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered){
@@ -213,9 +227,10 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
     attacker_key_hypotesis.key[0] = 1;
 
     for(int k = 0; k < SS_BITS; k++){
+//    for(int k = 2; k < 3; k++){
         poly Uhat;
         zero(&Uhat);
-        genfakeU(&Uhat, k);
+        genfakeU(&Uhat, k, S / 2);
 //        printf("U: ");printPoly(&Uhat); ///DEBUG
 
         //target the coefficients in a quadruplet after each other
@@ -279,11 +294,146 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
     }
 
     //no applying the optimization from Qin et. al.
-    int qin_queries = qin_recover(sk_guess, sk, n_not_recovered);
+    int qin_queries = 0;
+//    int qin_queries = qin_recover(sk_guess, sk, n_not_recovered);
+    sum_recover(sk_guess, sk, n_not_recovered);
+
 
     printf("Finished hole attack took %d queries qin took %d queries and could not find: %d coefficients\n", queries,
            qin_queries, *n_not_recovered);
     return queries;
+}
+
+int16_t get_secret_coeffs_value_around_zero(uint16_t value) {
+    int32_t final_value = value % NEWHOPE_Q;
+    if (final_value > NEWHOPE_Q / 2) {
+        final_value = final_value - NEWHOPE_Q;
+    }
+
+    return (int16_t) final_value;
+}
+
+int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
+    int queries = 0;
+    uint8_t errors = 0; //bitmap
+    unsigned char attack_ct[CRYPTO_CIPHERTEXTBYTES];
+    keyHypothesis_t attacker_key_hypotesis;
+    quadruplet_t l;
+
+
+    //creating key guess
+    for (int i = 1; i < CRYPTO_BYTES; i++) {
+        attacker_key_hypotesis.key[i] = 0;
+    }
+    attacker_key_hypotesis.key[0] = 1;
+
+//    for (int i = 0; i < SS_BITS * 4; ++i) {
+    for (int i = 321; i < 330; ++i) {
+        if (s_so_far->coeffs[i] != NOT_FOUND) {
+            continue;
+        }
+        poly Uhat;
+        genfakeU(&Uhat, i, S / 2);
+
+        printf("----------------- Try to get index %d -------------- \n", i);
+
+        //First test for -7, 5 and 6 so set v-8 = 0
+        creat_v_sum(&l, s_so_far, -1, i);
+
+
+        for (int16_t l_0 = -4; l_0 < 4; l_0++) {
+            l.l[i / SS_BITS] = l_0;
+            create_attack_ct(&Uhat, &l, attack_ct);
+            errors |= mismatchOracle(attack_ct, &attacker_key_hypotesis, sk, -1) << (l_0 + 4);
+        }
+
+        ///DEBUG
+        poly s;
+        poly_frombytes(&s, sk);
+        poly_invntt(&s);
+        printf("s: (%d ,%d,%d, %d)\n", get_secret_coeffs_value_around_zero(s.coeffs[i - 256]),
+               get_secret_coeffs_value_around_zero(s.coeffs[i]),
+               get_secret_coeffs_value_around_zero(s.coeffs[i + 256]),
+               get_secret_coeffs_value_around_zero(s.coeffs[i + 512]));
+
+        float l_1 = fabs(l.l[1] - (get_secret_coeffs_value_around_zero(s.coeffs[i - 256]) / 2.0f));
+        float l_2 = fabs(l.l[2] - (get_secret_coeffs_value_around_zero(s.coeffs[i + 256]) / 2.0f));
+        float l_3 = fabs(l.l[3] - (get_secret_coeffs_value_around_zero(s.coeffs[i + 512]) / 2.0f));
+        int v = (int) (l_1 + l_2 + l_3);
+        printf("|l_j - s_j/2|: %f , %f, %f\n", l_1, l_2, l_3);
+        printf("v-8: %d\n", (v - 8));
+
+        //Plot info
+        printf("[");
+        for (int i = 0; i < 8; i++) {
+            if (errors & (0x1 << i)) {
+                printf("+,");
+            } else {
+                printf("-,");
+            }
+        }
+        printf("]\n");
+
+        //v-8 = -1 test
+        if (errors == 0b11111100) {
+            s_so_far->coeffs[i] = 12282;
+            printf("Yeah -7 !!! \n");
+        } else if (errors == 0b00111111) {
+            s_so_far->coeffs[i] = 12294;
+            printf("Yeah 5 !!!\n");
+        } else if (errors == 0b00111110) {
+            s_so_far->coeffs[i] = 12295;
+            printf("Yeah 6 !!!\n");
+        } else if (errors == 0b01111110) {
+            s_so_far->coeffs[i] = 12296;
+            printf("Yeah 7 !!!\n");
+        } else {
+            printf("Dam it, more work!!! -8 or 8\n");
+        }
+
+        //TODO more tests for -8 ,8
+
+    }
+
+    return queries;
+}
+
+/**
+ * creates ab quadrubel based on s that creates a v-8 = target_sum
+ * @param l
+ * @param s
+ * @param target_sum
+ * @param target_index
+ * @return
+ */
+void creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index) {
+    ///DEBUG to test set dem manually
+    l->l[0] = 0;
+    l->l[1] = 0;
+    l->l[2] = 0;
+    l->l[3] = 0;
+//    sampleRandom(l, -4, 3);
+
+
+    int main_index = target_index % SS_BITS;
+    int sub_index = target_index / SS_BITS;
+    float sub_sum = (float) target_sum + 8;
+
+    for (int i = 0; i < 4; ++i) {
+        if (i == sub_index) continue;        //we only what to use the other 3 ones
+        float s_j = (get_secret_coeffs_value_around_zero(s->coeffs[main_index + i * SS_BITS]) / 2.0f);
+
+        if ((sub_sum > 0) && (s_j >= 0)) { // coeff is positive
+            l->l[i] = (int16_t) (-1 * MIN(MAX(sub_sum - s_j, 0), 3));
+            sub_sum += l->l[i] - s_j;
+        } else if (sub_sum > 0) { //coeff is negative
+            l->l[i] = (int16_t) (MIN(MAX(sub_sum + s_j, 0), 3));
+            sub_sum -= (l->l[i] - s_j);
+        } else { //just keep |l_j - S_j/2| == 0
+            l->l[i] = (int16_t) -1 * s_j;
+        }
+    }
+    printf("l: [ %d, %d , %d, %d ]\n", l->l[0], l->l[1], l->l[2], l->l[3]);
 }
 
 /**
@@ -487,18 +637,18 @@ void init(oracle_bitmap_t * b){
  * and converts to ntt domain
  * @param output U
  * @param input k
+ * @param input value should be S/2 for Bauer method, but can be different
  */
-void genfakeU(poly * U, int k){
+void genfakeU(poly *U, int k, uint16_t value) {
     zero(U);
-    if(k == 0){
-        U->coeffs[0] = S/2;
-    } else{
-        U->coeffs[NEWHOPE_N - k] = NEWHOPE_Q - (S/2);
+    if (k == 0) {
+        U->coeffs[0] = value;
+    } else {
+        U->coeffs[NEWHOPE_N - k] = NEWHOPE_Q - (value);
     }
     poly_ntt(U);
     poly_invntt(U);
     poly_ntt(U);
-
 }
 
 /**
@@ -511,14 +661,10 @@ void create_attack_ct(const poly * uhat, quadruplet_t *l, unsigned char * attack
     zero(&c);
     for (int i = 0; i < QUADRUPLET_SIZE; ++i) {
         //the paper only says (l->l[i] + 4 % 8) but as this gets compressed, we need to "decompress first"
-        c.coeffs[i*SS_BITS] = ((l->l[i] + 4 % 8) * NEWHOPE_Q) / 8;
-//        c.coeffs[i*SS_BITS] = (l->l[i] + 4 % 8);
+        c.coeffs[i * SS_BITS] =
+                (uint16_t) (((l->l[i] + 4 % 8) * NEWHOPE_Q) / 8.0) + 0.5; // NOLINT(bugprone-incorrect-roundings)
     }
-
-//    printf("C[768]:%d\n", c.coeffs[768]);
-
     encode_c(attack_ct, uhat, &c);
-
 }
 
 /**
