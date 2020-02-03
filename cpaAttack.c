@@ -328,7 +328,7 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
     attacker_key_hypotesis.key[0] = 1;
 
     for (int i = 0; i < SS_BITS * 4; ++i) {
-//    for (int i = 40; i < 50; ++i) {
+//    for (int i = 1021; i < 1024; ++i) {
         if (s_so_far->coeffs[i] != NOT_FOUND) {
             continue;
         }
