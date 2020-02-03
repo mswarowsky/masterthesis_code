@@ -327,10 +327,13 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
     attacker_key_hypotesis.key[0] = 1;
 
     for (int i = 0; i < SS_BITS * 4; ++i) {
-//    for (int i = 682; i < 990; ++i) {
+//    for (int i = 2; i < 3; ++i) {
         if (s_so_far->coeffs[i] != NOT_FOUND) {
             continue;
         }
+
+        //reset bitmap
+        errors = 0;
 
         //check if we have the other three coefficients
         if(check_other_coefficients_where_also_not_found(s_so_far, i)){
@@ -373,12 +376,12 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
         } else if (errors == 0b00111111) {
             s_so_far->coeffs[i] = 12294;
             printf("Yeah 5 !!!\n");
-        } else if (errors == 0b00111110) {
-            s_so_far->coeffs[i] = 12295;
-            printf("Yeah 6 !!!\n");
+//        } else if (errors == 0b00111110) {
+//            s_so_far->coeffs[i] = 12295;
+//            printf("Yeah 6 !!!\n");
         } else if (errors == 0b01111111) {
-            s_so_far->coeffs[i] = 12296;
-            printf("Yeah 7 !!!\n");
+//            s_so_far->coeffs[i] = 12296;
+            printf("Dam it 6 or 7 more work!!!\n");
         } else {
             printf("Dam it, more work!!! -8 or 8\n");
             //TODO more tests for -8 ,8
@@ -400,10 +403,10 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
  */
 void creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index) {
     ///DEBUG to test set dem manually
-    l->l[0] = 0;
-    l->l[1] = 0;
+    l->l[0] = -1;
+    l->l[1] = 3;
     l->l[2] = 0;
-    l->l[3] = 0;
+    l->l[3] = 2;
 //    sampleRandom(l, -4, 3);
 
 
@@ -422,8 +425,7 @@ void creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index)
         s_c[i] = get_secret_coeffs_value_around_zero(s->coeffs[main_index + i * SS_BITS]);
         if (i == sub_index) continue;        //we only what to use the other 3 ones
 
-        ///DEBUG
-        l_j[i] = fabs(l->l[0] - (get_secret_coeffs_value_around_zero(s->coeffs[main_index + i * SS_BITS]) / 2.0f));
+
 
 
         float s_j = (get_secret_coeffs_value_around_zero(s->coeffs[(main_index + i * SS_BITS)]) / 2.0f);
@@ -437,10 +439,14 @@ void creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index)
         } else { //just keep |l_j - S_j/2| == 0
             l->l[i] = (int16_t) s_j;
         }
+
+        ///DEBUG
+        l_j[i] = fabs(l->l[i] - (get_secret_coeffs_value_around_zero(s->coeffs[main_index + i * SS_BITS]) / 2.0f));
     }
     printf("l: [ %d, %d , %d, %d ]\n", l->l[0], l->l[1], l->l[2], l->l[3]);
 
     ///DEBUG
+
     printf("s: (%d ,%d,%d, %d)\n", s_c[0], s_c[1], s_c[2], s_c[3]);
     int v = (int) (l_j[0] + l_j[1] + l_j[2] +l_j[3]);
     printf("|l_j - s_j/2|: %f , %f, %f, %f\n", l_j[0] , l_j[1] , l_j[2] ,l_j[3]);
