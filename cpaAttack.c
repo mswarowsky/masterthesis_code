@@ -37,7 +37,8 @@ void *testRun(void *arg);
 #define S 1536  /** q = 8s + 1 **/
 #define NOT_FOUND 2000
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
-#define MIN(x, y) (((x) < (y)) ? (x) : (y))
+#define MIN2(x, y) (((x) < (y)) ? (x) : (y))
+#define MIN3(x, y, z) MIN2(x , MIN2(y, z))
 
 typedef struct {
     int16_t l[QUADRUPLET_SIZE];
@@ -327,7 +328,7 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
     attacker_key_hypotesis.key[0] = 1;
 
     for (int i = 0; i < SS_BITS * 4; ++i) {
-//    for (int i = 2; i < 3; ++i) {
+//    for (int i = 40; i < 50; ++i) {
         if (s_so_far->coeffs[i] != NOT_FOUND) {
             continue;
         }
@@ -402,55 +403,46 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
  * @return
  */
 void creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index) {
-    ///DEBUG to test set dem manually
-    l->l[0] = -1;
-    l->l[1] = 3;
+    //start with 0
+    l->l[0] = 0;
+    l->l[1] = 0;
     l->l[2] = 0;
-    l->l[3] = 2;
-//    sampleRandom(l, -4, 3);
-
-
+    l->l[3] = 0;
     float l_j[4] = {0,0,0,0};
     int16_t s_c[4] = {0,0,0,0};
-
-
-
 
     int main_index = target_index % SS_BITS;
     int sub_index = target_index / SS_BITS;
     float sub_sum = (float) target_sum + 8;
 
+
     for (int i = 0; i < 4; ++i) {
-        //DEBUG
         s_c[i] = get_secret_coeffs_value_around_zero(s->coeffs[main_index + i * SS_BITS]);
         if (i == sub_index) continue;        //we only what to use the other 3 ones
+        l_j[i] = fabs((float)l->l[i] - ((float) get_secret_coeffs_value_around_zero(s->coeffs[main_index + i * SS_BITS]) / 2.0f));
+    }
 
+    float v = (l_j[0] + l_j[1] + l_j[2] +l_j[3]);
+    sub_sum -= v;
 
+    for (int i = 0; i < 4; ++i) {
+        if (i == sub_index) continue;        //we only what to use the other 3 ones
 
-
-        float s_j = (get_secret_coeffs_value_around_zero(s->coeffs[(main_index + i * SS_BITS)]) / 2.0f);
-
-        if ((sub_sum > 0) && (s_j >= 0)) { // coeff is positive
-            l->l[i] = (int16_t) (-1 * MIN(MAX(sub_sum - s_j, 0) + 0.5, 3));
-            sub_sum += l->l[i] - s_j;
-        } else if (sub_sum > 0) { //coeff is negative
-            l->l[i] = (int16_t) (MIN(MAX(sub_sum + s_j, 0) + 0.5 , 3));
-            sub_sum -= (l->l[i] - s_j);
-        } else { //just keep |l_j - S_j/2| == 0
-            l->l[i] = (int16_t) s_j;
-        }
-
-        ///DEBUG
-        l_j[i] = fabs(l->l[i] - (get_secret_coeffs_value_around_zero(s->coeffs[main_index + i * SS_BITS]) / 2.0f));
+        if(sub_sum > 0){
+                //        getting sign from s_j  invert sign   select the most feasible value within all constrains (l_j[i] <= 4 ; -4 <= l[i] <=3; and sum <- 0
+                l->l[i] = ((s_c[i] >> 15) | 1)   *  -1      *  (int16_t) MIN3(4.f - l_j[i], sub_sum + 0.5, 3.f);
+                //update sums
+                sub_sum -= (float) abs(l->l[i]);
+                l_j[i] = fabs((float) l->l[i] - ((float)get_secret_coeffs_value_around_zero(s->coeffs[main_index + i * SS_BITS]) / 2.0f));
+            }
     }
     printf("l: [ %d, %d , %d, %d ]\n", l->l[0], l->l[1], l->l[2], l->l[3]);
 
     ///DEBUG
-
     printf("s: (%d ,%d,%d, %d)\n", s_c[0], s_c[1], s_c[2], s_c[3]);
-    int v = (int) (l_j[0] + l_j[1] + l_j[2] +l_j[3]);
+    v = l_j[0] + l_j[1] + l_j[2] +l_j[3];
     printf("|l_j - s_j/2|: %f , %f, %f, %f\n", l_j[0] , l_j[1] , l_j[2] ,l_j[3]);
-    printf("v-8: %d\n", (v - 8));
+    printf("v-8: %d\n", ((int)v - 8));
 }
 
 /**
