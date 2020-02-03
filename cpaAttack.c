@@ -327,8 +327,8 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
     }
     attacker_key_hypotesis.key[0] = 1;
 
-    for (int i = 0; i < SS_BITS * 4; ++i) {
-//    for (int i = 1021; i < 1024; ++i) {
+//    for (int i = 0; i < SS_BITS * 4; ++i) {
+    for (int i = 3; i < 4; ++i) {
         if (s_so_far->coeffs[i] != NOT_FOUND) {
             continue;
         }
@@ -345,12 +345,12 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
 
         poly Uhat;
         quadruplet_t l;
-        genfakeU(&Uhat, i % SS_BITS, S / 2);
+        genfakeU(&Uhat, i % SS_BITS, S /2 );
 
         printf("----------------- Try to get index %d -------------- \n", i);
 
         //First test for -7, 5 and 6 so set v-8 = 0
-        creat_v_sum(&l, s_so_far, -1, i);
+        creat_v_sum(&l, s_so_far, -2, i);
 
         for (int16_t l_0 = -4; l_0 < 4; l_0++) {
             l.l[i / SS_BITS] = l_0;
@@ -406,8 +406,8 @@ void creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index)
     //start with 0
     l->l[0] = 0;
     l->l[1] = 0;
-    l->l[2] = 0;
-    l->l[3] = 0;
+    l->l[2] = 2;
+    l->l[3] = -2;
     float l_j[4] = {0,0,0,0};
     int16_t s_c[4] = {0,0,0,0};
 
@@ -426,15 +426,12 @@ void creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index)
     sub_sum -= v;
 
     for (int i = 0; i < 4; ++i) {
-        if (i == sub_index) continue;        //we only what to use the other 3 ones
-
-        if(sub_sum > 0){
-                //        getting sign from s_j  invert sign   select the most feasible value within all constrains (l_j[i] <= 4 ; -4 <= l[i] <=3; and sum <- 0
-                l->l[i] = ((s_c[i] >> 15) | 1)   *  -1      *  (int16_t) MIN3(4.f - l_j[i], sub_sum + 0.5, 3.f);
-                //update sums
-                sub_sum -= (float) abs(l->l[i]);
-                l_j[i] = fabs((float) l->l[i] - ((float)get_secret_coeffs_value_around_zero(s->coeffs[main_index + i * SS_BITS]) / 2.0f));
-            }
+//        if (i == sub_index) continue;        //we only what to use the other 3 ones
+//        //        getting sign from s_j  invert sign   select the most feasible value within all constrains (l_j[i] <= 4 ; -4 <= l[i] <=3; and sum <- 0
+//        l->l[i] = ((s_c[i] >> 15) | 1)   *  -1      *  (int16_t) MIN3(4.f - l_j[i], sub_sum + 0.5, 3.f);
+//        //update sums
+//        sub_sum -= (float) abs(l->l[i]);
+//        l_j[i] = fabs((float) l->l[i] - ((float)get_secret_coeffs_value_around_zero(s->coeffs[main_index + i * SS_BITS]) / 2.0f));
     }
     printf("l: [ %d, %d , %d, %d ]\n", l->l[0], l->l[1], l->l[2], l->l[3]);
 
@@ -442,7 +439,7 @@ void creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index)
     printf("s: (%d ,%d,%d, %d)\n", s_c[0], s_c[1], s_c[2], s_c[3]);
     v = l_j[0] + l_j[1] + l_j[2] +l_j[3];
     printf("|l_j - s_j/2|: %f , %f, %f, %f\n", l_j[0] , l_j[1] , l_j[2] ,l_j[3]);
-    printf("v-8: %d\n", ((int)v - 8));
+    printf("v-8.f: %f v-8:%d\n", (v - 8.f), (int)v - 8);
 }
 
 /**
