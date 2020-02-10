@@ -7,6 +7,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <math.h>
+#include <float.h>
 #include "NewHope/api.h"
 #include "NewHope/poly.h"
 #include "NewHope/cpapke.h"
@@ -85,7 +86,7 @@ int qin_recover(poly *s_so_far, unsigned char *sk, uint16_t *n_not_recovered);
 
 int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered);
 
-void creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index);
+float_t creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index);
 
 uint16_t coefficientAbs(uint16_t coefficient);
 
@@ -239,6 +240,12 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
                     sign_change = 0;
                     oracle_bitmap_t oracleErrors;
                     init(&oracleErrors);
+                    //If we already know three coefficients, then we can set l to fit on the first try
+                    if(j == 3 && sk_guess->coeffs[k] != NOT_FOUND &&
+                                 sk_guess->coeffs[k + 256] != NOT_FOUND &&
+                                 sk_guess->coeffs[k + 512] != NOT_FOUND){
+                        creat_v_sum(&l, sk_guess, -2, k + j * SS_BITS);
+                    }
                     sampleRandom(&l, -4, 3); //l := drawl()
 
                     //Border check ???
@@ -327,8 +334,8 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
     }
     attacker_key_hypotesis.key[0] = 1;
 
-//    for (int i = 0; i < SS_BITS * 4; ++i) {
-    for (int i = 3; i < 4; ++i) {
+    for (int i = 0; i < SS_BITS * 4; ++i) {
+//    for (int i = 3; i < 4; ++i) {
         if (s_so_far->coeffs[i] != NOT_FOUND) {
             continue;
         }
@@ -350,7 +357,11 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
         printf("----------------- Try to get index %d -------------- \n", i);
 
         //First test for -7, 5 and 6 so set v-8 = 0
-        creat_v_sum(&l, s_so_far, -2, i);
+        float_t v = creat_v_sum(&l, s_so_far, -1, i);
+
+        //first see if we are in the -0.5 or -1.0 case
+        printf("v-8.f: %f\n", v);
+
 
         for (int16_t l_0 = -4; l_0 < 4; l_0++) {
             l.l[i / SS_BITS] = l_0;
@@ -370,25 +381,62 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
         }
         printf("]\n");
 
-        //v-8 = -1 test
-        if (errors == 0b11111100) {
-            s_so_far->coeffs[i] = 12282;
-            printf("Yeah -7 !!! \n");
-        } else if (errors == 0b00111111) {
-            s_so_far->coeffs[i] = 12294;
-            printf("Yeah 5 !!!\n");
-//        } else if (errors == 0b00111110) {
-//            s_so_far->coeffs[i] = 12295;
-//            printf("Yeah 6 !!!\n");
-        } else if (errors == 0b01111111) {
-//            s_so_far->coeffs[i] = 12296;
-            printf("Dam it 6 or 7 more work!!!\n");
-        } else {
-            printf("Dam it, more work!!! -8 or 8\n");
-            //TODO more tests for -8 ,8
-        }
 
-        (*not_recovered)--;
+        //for evaluation see what v we had
+        if(fabs(v+0.5) < FLT_EPSILON){
+            // v = -0.5 case, we can check for -7,5 and guess -8/8; 6/7
+            if (errors == 0b11111100) {
+                s_so_far->coeffs[i] = 12282;
+                printf("Yeah -7 !!! \n");
+                (*not_recovered)--;
+            } else if (errors == 0b00111111){
+                s_so_far->coeffs[i] = 12294;
+                printf("Yeah 5 !!! \n");
+                (*not_recovered)--;
+            } else if (errors == 0b01111111){
+                s_so_far->coeffs[i] = 500 + 60 + 7;    //code for 0.5 6 or 7
+                printf("Maybe 6 or 7 \n");
+            } else if (errors == 0b11111110){
+                s_so_far->coeffs[i] = 500 + 80 + 8;    //code for 0.5 8 or -8
+                printf("Maybe -8 or 8 \n");
+            }
+        } else {
+            // v = 0.0 case, we can check for -8,-7,5.6 and guess 7/8
+            if (errors == 0b11111100) { // -8 or -7
+                v = creat_v_sum(&l, s_so_far, 0, i);
+                printf("reset vor -8 or -7 with v-8: %f\n", v);
+                l.l[i / SS_BITS] = -4;      // only test edge case
+                create_attack_ct(&Uhat, &l, attack_ct);
+                bool is_7 = mismatchOracle(attack_ct, &attacker_key_hypotesis, sk, -1);
+                queries++;
+                if(is_7 == true) {
+                    s_so_far->coeffs[i] = 12282;
+                    printf("Yeah -7 !!! \n");
+                } else {
+                    s_so_far->coeffs[i] = 12281;
+                    printf("Yeah -8 !!! \n");
+                }
+                (*not_recovered)--;
+            } else if (errors == 0b00111111){
+                v = creat_v_sum(&l, s_so_far, 0, i);
+                printf("reset vor 5 or 6 with v-8: %f\n", v);
+                l.l[i / SS_BITS] = 3;      // only test edge case
+                create_attack_ct(&Uhat, &l, attack_ct);
+                bool is_5 = mismatchOracle(attack_ct, &attacker_key_hypotesis, sk, -1);
+                queries++;
+                if(is_5 == true) {
+                    s_so_far->coeffs[i] = 12294;
+                    printf("Yeah 5 !!! \n");
+                }else {
+                    s_so_far->coeffs[i] = 12295;
+                    printf("Yeah 6 !!! \n");
+                }
+                (*not_recovered)--;
+            } else { //only 7 or 8 left
+                s_so_far->coeffs[i] = 70 + 8;    //code for 0.0 7 or 8
+                printf("Maybe 7 or 8 \n");
+            }
+        }
     }
 
     return queries;
@@ -399,15 +447,15 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
  * @param l
  * @param s
  * @param target_sum
- * @param target_index
- * @return
+ * @param target_index [0, 1023]
+ * @return v-8.f
  */
-void creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index) {
+float_t creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index) {
     //start with 0
     l->l[0] = 0;
     l->l[1] = 0;
-    l->l[2] = 2;
-    l->l[3] = -2;
+    l->l[2] = 0;
+    l->l[3] = 0;
     float l_j[4] = {0,0,0,0};
     int16_t s_c[4] = {0,0,0,0};
 
@@ -426,20 +474,22 @@ void creat_v_sum(quadruplet_t *l, poly *s, int16_t target_sum, int target_index)
     sub_sum -= v;
 
     for (int i = 0; i < 4; ++i) {
-//        if (i == sub_index) continue;        //we only what to use the other 3 ones
-//        //        getting sign from s_j  invert sign   select the most feasible value within all constrains (l_j[i] <= 4 ; -4 <= l[i] <=3; and sum <- 0
-//        l->l[i] = ((s_c[i] >> 15) | 1)   *  -1      *  (int16_t) MIN3(4.f - l_j[i], sub_sum + 0.5, 3.f);
-//        //update sums
-//        sub_sum -= (float) abs(l->l[i]);
-//        l_j[i] = fabs((float) l->l[i] - ((float)get_secret_coeffs_value_around_zero(s->coeffs[main_index + i * SS_BITS]) / 2.0f));
+        if (i == sub_index) continue;        //we only what to use the other 3 ones
+        //        getting sign from s_j  invert sign   select the most feasible value within all constrains (l_j[i] <= 4 ; -4 <= l[i] <=3; and sum <- 0
+        l->l[i] = ((s_c[i] >> 15) | 1)   *  -1      *  (int16_t) MIN3(4.f - l_j[i], sub_sum + 0.5, 3.f);
+        //update sums
+        sub_sum -= (float) abs(l->l[i]);
+        l_j[i] = fabs((float) l->l[i] - ((float)get_secret_coeffs_value_around_zero(s->coeffs[main_index + i * SS_BITS]) / 2.0f));
     }
     printf("l: [ %d, %d , %d, %d ]\n", l->l[0], l->l[1], l->l[2], l->l[3]);
+    v = l_j[0] + l_j[1] + l_j[2] +l_j[3];
 
     ///DEBUG
     printf("s: (%d ,%d,%d, %d)\n", s_c[0], s_c[1], s_c[2], s_c[3]);
-    v = l_j[0] + l_j[1] + l_j[2] +l_j[3];
     printf("|l_j - s_j/2|: %f , %f, %f, %f\n", l_j[0] , l_j[1] , l_j[2] ,l_j[3]);
     printf("v-8.f: %f v-8:%d\n", (v - 8.f), (int)v - 8);
+
+    return v-8.f;
 }
 
 /**
