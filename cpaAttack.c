@@ -18,8 +18,8 @@
 #define AT_DATA_ERROR      -3
 #define AT_CRYPTO_FAILURE  -4
 
-//#define printf //
-#define DEV
+#define printf //
+//#define DEV
 
 
 static void encode_c(unsigned char *r, const poly *b, const poly *v);
@@ -32,7 +32,7 @@ void *testRun(void *arg);
 
 /***************************** Attack related *******************************/
 #define SS_BITS (NEWHOPE_N/4)
-#define MAX_TRIES 20
+#define MAX_TRIES 30
 #define QUADRUPLET_SIZE 4
 #define TEST_RANGE 8
 #define S 1536  /** q = 8s + 1 **/
@@ -201,11 +201,11 @@ void full_attack(FILE * log) {
 
     }
 //
-//    printf("%d correct - %d wrong not possible: %d\n", correct, NEWHOPE_N - correct, not_findable);
-//    pthread_mutex_lock(&lock);
-//    fprintf(log, "%d; %d; %d; %d; %d\n", correct, NEWHOPE_N - correct, n_not_recovered, not_findable, queries);
-//    fflush(log);
-//    pthread_mutex_unlock(&lock);
+    printf("%d correct - %d wrong not possible: %d\n", correct, NEWHOPE_N - correct, not_findable);
+    pthread_mutex_lock(&lock);
+    fprintf(log, "%d; %d; %d; %d; %d\n", correct, NEWHOPE_N - correct, n_not_recovered, not_findable, queries);
+    fflush(log);
+    pthread_mutex_unlock(&lock);
 }
 
 int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered){
@@ -240,13 +240,14 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
                     sign_change = 0;
                     oracle_bitmap_t oracleErrors;
                     init(&oracleErrors);
+                    sampleRandom(&l, -4, 3); //l := drawl()
+
                     //If we already know three coefficients, then we can set l to fit on the first try
                     if(j == 3 && sk_guess->coeffs[k] != NOT_FOUND &&
                                  sk_guess->coeffs[k + 256] != NOT_FOUND &&
                                  sk_guess->coeffs[k + 512] != NOT_FOUND){
-                        creat_v_sum(&l, sk_guess, -2, k + j * SS_BITS);
+                        creat_v_sum(&l, sk_guess, -1 * ((tries+1)%3), k + j * SS_BITS);
                     }
-                    sampleRandom(&l, -4, 3); //l := drawl()
 
                     //Border check ???
                     if(checkAtBorders(&l, j,k, &Uhat,&attacker_key_hypotesis, sk)){
@@ -257,9 +258,9 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
                         //this tries l_j \in [-3,2] and already fingers \tau_1 and \tau_2 out
                         queries += testAndFindTau(tau, &sign_change, &l, j, k, &Uhat, &attacker_key_hypotesis,
                                 &oracleErrors, sk);
-                        tries++;
                         printf("+]   ");
                     }
+                    tries++;
                     //check borders uses 2 queries
                     queries +=2;
                 }
@@ -292,13 +293,12 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
     }
 
     //no applying the optimization from Qin et. al.
-    int qin_queries = 0;
+//    int qin_queries = 0;
 //    int qin_queries = qin_recover(sk_guess, sk, n_not_recovered);
-    sum_recover(sk_guess, sk, n_not_recovered);
+//    sum_recover(sk_guess, sk, n_not_recovered);
 
 
-    printf("Finished hole attack took %d queries qin took %d queries and could not find: %d coefficients\n", queries,
-           qin_queries, *n_not_recovered);
+    printf("Finished hole attack took %d queries qin took queries \n", queries);
     return queries;
 }
 
@@ -624,7 +624,7 @@ uint8_t testAndFindTau(int8_t *tau, uint8_t *sign_changes, quadruplet_t *l, cons
         queries++;
 
         //check and set tau_2 from false(0) -> true(1)
-        if (oracle_results->b[i-1] == false && oracle_results->b[i] == true) {
+        if (i>0 && oracle_results->b[i-1] == false && oracle_results->b[i] == true) {
             (*sign_changes)++;         //should always be 2 here but this is taken from the magma code
             tau[1] = l_test_value - 1;  //using the test value as this closer to the paper instead of magma version
             //not fully necessary but again follow the magma code
@@ -634,12 +634,12 @@ uint8_t testAndFindTau(int8_t *tau, uint8_t *sign_changes, quadruplet_t *l, cons
         }
 
         //check and set tau_1 from true(1) -> false(0)
-        if(oracle_results->b[i-1] == true && oracle_results->b[i] == false){
+        if(i > 0 && oracle_results->b[i-1] == true && oracle_results->b[i] == false){
             (*sign_changes)++;         //should be 1 here ...
             tau[0] = l_test_value;  //using the test value as this closer to the paper instead of magma version
         }
 
-        //check if only have on time false(0) then this is the case at at i=6 under the assumtion that we stop after finding
+        //check if only have on time false(0) then this is the case at at i=6 under the assumption that we stop after finding
         // tau_2 otherwise
         if(i == 6 && oracle_results->b[i] == false){
             (*sign_changes)++;
@@ -657,6 +657,11 @@ uint8_t testAndFindTau(int8_t *tau, uint8_t *sign_changes, quadruplet_t *l, cons
         //update test value for next run
         l_test_value++;
     }
+    //no favorable case throw away results got obsolete because of boundary check
+//    if(oracle_results->b[0] == false || oracle_results->b[TEST_RANGE-1] == false){
+//        (*sign_changes) = 0;
+//        tau[0] = tau[1] = -10;
+//    }
     return queries;
 }
 
