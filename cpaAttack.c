@@ -18,8 +18,8 @@
 #define AT_DATA_ERROR      -3
 #define AT_CRYPTO_FAILURE  -4
 
-//#define printf //
-#define DEV
+#define printf //
+//#define DEV
 
 
 static void encode_c(unsigned char *r, const poly *b, const poly *v);
@@ -32,7 +32,7 @@ void *testRun(void *arg);
 
 /***************************** Attack related *******************************/
 #define SS_BITS (NEWHOPE_N/4)
-#define MAX_TRIES 20
+#define MAX_TRIES 30
 #define QUADRUPLET_SIZE 4
 #define TEST_RANGE 8
 #define S 1536  /** q = 8s + 1 **/
@@ -167,6 +167,8 @@ void full_attack(FILE * log) {
 
 //    // Attack starting here
     int queries = key_recovery(&sk_guess, sk, &n_not_recovered);
+    int sum_queries = sum_recover(&sk_guess, sk, &n_not_recovered);
+
 
 
     poly s;
@@ -186,6 +188,7 @@ void full_attack(FILE * log) {
 
     int not_findable = 0;
     int correct = 0;
+    int narrowedDown = 0;
     for (int j = 0; j < NEWHOPE_N; j++) {
         uint16_t real_coefficient = s.coeffs[j] % NEWHOPE_Q;
         if (real_coefficient > 4 && real_coefficient < 12283) {
@@ -195,6 +198,9 @@ void full_attack(FILE * log) {
 
         if ((sk_guess.coeffs[j] % NEWHOPE_Q) != real_coefficient) {
             printf("wrong at %d real: %d(%d) vs. %d\n", j, real_coefficient, s.coeffs[j], sk_guess.coeffs[j]);
+            //check if it was at least narrowed down
+            if((sk_guess.coeffs[j] % NEWHOPE_Q) == 567 || (sk_guess.coeffs[j] % NEWHOPE_Q) == 588 || (sk_guess.coeffs[j] % NEWHOPE_Q) == 78 )
+                narrowedDown++;
         } else {
             correct++;
         }
@@ -202,10 +208,11 @@ void full_attack(FILE * log) {
     }
 //
 //    printf("%d correct - %d wrong not possible: %d\n", correct, NEWHOPE_N - correct, not_findable);
-//    pthread_mutex_lock(&lock);
-//    fprintf(log, "%d; %d; %d; %d; %d\n", correct, NEWHOPE_N - correct, n_not_recovered, not_findable, queries);
-//    fflush(log);
-//    pthread_mutex_unlock(&lock);
+    pthread_mutex_lock(&lock);
+    fprintf(log, "%d; %d; %d; %d; %d; %d; %d; %d\n",
+            correct, NEWHOPE_N - correct, not_findable, narrowedDown, not_findable - narrowedDown - (NEWHOPE_N - correct),  queries, sum_queries , queries+ sum_queries);
+    fflush(log);
+    pthread_mutex_unlock(&lock);
 }
 
 int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered){
@@ -240,13 +247,14 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
                     sign_change = 0;
                     oracle_bitmap_t oracleErrors;
                     init(&oracleErrors);
+                    sampleRandom(&l, -4, 3); //l := drawl()
+
                     //If we already know three coefficients, then we can set l to fit on the first try
                     if(j == 3 && sk_guess->coeffs[k] != NOT_FOUND &&
                                  sk_guess->coeffs[k + 256] != NOT_FOUND &&
                                  sk_guess->coeffs[k + 512] != NOT_FOUND){
-                        creat_v_sum(&l, sk_guess, -2, k + j * SS_BITS);
+                        creat_v_sum(&l, sk_guess, -1 * ((tries+1)%3), k + j * SS_BITS);
                     }
-                    sampleRandom(&l, -4, 3); //l := drawl()
 
                     //Border check ???
                     if(checkAtBorders(&l, j,k, &Uhat,&attacker_key_hypotesis, sk)){
@@ -257,9 +265,9 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
                         //this tries l_j \in [-3,2] and already fingers \tau_1 and \tau_2 out
                         queries += testAndFindTau(tau, &sign_change, &l, j, k, &Uhat, &attacker_key_hypotesis,
                                 &oracleErrors, sk);
-                        tries++;
                         printf("+]   ");
                     }
+                    tries++;
                     //check borders uses 2 queries
                     queries +=2;
                 }
@@ -291,14 +299,9 @@ int key_recovery(poly *sk_guess, unsigned char * sk, uint16_t  * n_not_recovered
         }
     }
 
-    //no applying the optimization from Qin et. al.
-    int qin_queries = 0;
-//    int qin_queries = qin_recover(sk_guess, sk, n_not_recovered);
-    sum_recover(sk_guess, sk, n_not_recovered);
 
 
-    printf("Finished hole attack took %d queries qin took %d queries and could not find: %d coefficients\n", queries,
-           qin_queries, *n_not_recovered);
+    printf("Finished hole attack took %d queries and could not find: %d coefficients\n", queries, *n_not_recovered);
     return queries;
 }
 
@@ -360,7 +363,7 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
         float_t v = creat_v_sum(&l, s_so_far, -1, i);
 
         //first see if we are in the -0.5 or -1.0 case
-        printf("v-8.f: %f\n", v);
+        printf("v: %f\n", v);
 
 
         for (int16_t l_0 = -4; l_0 < 4; l_0++) {
@@ -404,7 +407,7 @@ int sum_recover(poly *s_so_far, unsigned char *sk, uint16_t *not_recovered) {
             // v = 0.0 case, we can check for -8,-7,5.6 and guess 7/8
             if (errors == 0b11111100) { // -8 or -7
                 v = creat_v_sum(&l, s_so_far, 0, i);
-                printf("reset vor -8 or -7 with v-8: %f\n", v);
+                printf("reset vor -8 or -7 with v: %f\n", v);
                 l.l[i / SS_BITS] = -4;      // only test edge case
                 create_attack_ct(&Uhat, &l, attack_ct);
                 bool is_7 = mismatchOracle(attack_ct, &attacker_key_hypotesis, sk, -1);
